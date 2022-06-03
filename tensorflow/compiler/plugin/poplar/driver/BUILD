@@ -131,6 +131,8 @@ poplar_cc_library(
         "//tensorflow/compiler/plugin/poplar/driver/tools/custom_ops:host_embedding",
         "@com_google_absl//absl/container:flat_hash_map",
     ],
+    # JAXlib compilation into a single library.
+    alwayslink = True,
 )
 
 poplar_cc_library(
@@ -164,6 +166,7 @@ poplar_cc_library(
         ":compiler_information",
         ":driver_backend",
     ],
+    alwayslink = True,
 )
 
 poplar_cc_library(
@@ -171,6 +174,7 @@ poplar_cc_library(
     hdrs = [
         "compiler_information.h",
     ],
+    alwayslink = True,
 )
 
 poplar_cc_library(
@@ -200,6 +204,7 @@ poplar_cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_protobuf//:protobuf_headers",
     ],
+    alwayslink = True,
 )
 
 poplar_cc_library(
@@ -295,6 +300,7 @@ poplar_cc_library(
         "@com_google_protobuf//:protobuf_headers",
         "@local_config_poplar//poplar:poplar_libs",
     ],
+    alwayslink = True,
 )
 
 poplar_cc_library(
@@ -310,6 +316,7 @@ poplar_cc_library(
         ":tensor",
         "//tensorflow/compiler/plugin/poplar/driver/tools:hlo_hash",
     ],
+    alwayslink = True,
 )
 
 poplar_cc_library(
@@ -327,6 +334,7 @@ poplar_cc_library(
         "//tensorflow/compiler/tf2xla:common",
         "//tensorflow/core/util:version_info",
     ],
+    alwayslink = True,
 )
 
 poplar_cc_library(
@@ -340,6 +348,7 @@ poplar_cc_library(
     deps = [
         "//tensorflow/stream_executor:platform",
     ],
+    alwayslink = True,
 )
 
 poplar_cc_library(
@@ -354,6 +363,7 @@ poplar_cc_library(
         ":poplar_executable",
         ":poplar_platform_id",
     ],
+    alwayslink = True,
 )
 
 poplar_cc_library(
@@ -376,6 +386,7 @@ poplar_cc_library(
     hdrs = [
         "poplar_version.h",
     ],
+    alwayslink = True,
 )
 
 poplar_cc_library(
@@ -404,6 +415,7 @@ poplar_cc_library(
         "@com_google_protobuf//:protobuf_headers",
         "@local_config_poplar//poplar:poplar_libs",
     ],
+    alwayslink = True,
 )
 
 poplar_cc_library(
@@ -426,6 +438,7 @@ poplar_cc_library(
         "//tensorflow/compiler/plugin/poplar/driver/visitors:visitor_base",
         "//tensorflow/compiler/plugin/poplar/driver/visitors:visitor_full",
     ],
+    alwayslink = True,
 )
 
 poplar_cc_library(
@@ -433,6 +446,7 @@ poplar_cc_library(
     hdrs = [
         "vertex_templates.h",
     ],
+    alwayslink = True,
 )
 
 poplar_cc_library(
@@ -527,4 +541,5 @@ poplar_cc_library(
         "//tensorflow/compiler/plugin/poplar/driver/tools/custom_ops",
         "//tensorflow/compiler/plugin/poplar/driver/visitors",
     ],
+    alwayslink = True,
 )
