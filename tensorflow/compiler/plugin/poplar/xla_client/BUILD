@@ -2,7 +2,6 @@ load("//tensorflow:tensorflow.bzl", "pybind_extension")
 load("//tensorflow/compiler/xla:xla.bzl", "xla_py_test_deps")
 load("//tensorflow/compiler/plugin/poplar:poplar.bzl", "poplar_cc_library")
 
-
 poplar_cc_library(
     name = "ipu_pjrt_client",
     srcs = [
@@ -14,6 +13,7 @@ poplar_cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//tensorflow/compiler/plugin/poplar:poplar_lib",
+        "//tensorflow/compiler/plugin/poplar/xla_client/ipu_backend",
         "//tensorflow/compiler/xla:statusor",
         "//tensorflow/compiler/xla/client:client_library",
         "//tensorflow/compiler/xla/pjrt:pjrt_stream_executor_client",
@@ -28,11 +28,11 @@ pybind_extension(
     srcs = [
         "python/ipu_xla_client_pybind.cc",
     ],
-    module_name = "ipu_xla_client_pybind",
     copts = [
         "-fexceptions",
         "-fno-strict-aliasing",
     ],
+    module_name = "ipu_xla_client_pybind",
     deps = [
         ":ipu_pjrt_client",
         "//tensorflow/compiler/xla/pjrt:pjrt_client",

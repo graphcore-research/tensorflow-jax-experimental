@@ -20,8 +20,8 @@ limitations under the License.
 #include <vector>
 
 #include "tensorflow/compiler/plugin/poplar/driver/config.pb.h"
-#include "tensorflow/compiler/plugin/poplar/driver/poplar_platform.h"
 #include "tensorflow/compiler/plugin/poplar/driver/poplar_executor.h"
+#include "tensorflow/compiler/plugin/poplar/driver/poplar_platform.h"
 #include "tensorflow/compiler/xla/client/client_library.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
 #include "tensorflow/compiler/xla/service/platform_util.h"
@@ -41,12 +41,14 @@ class IpuClient : public xla::PjRtStreamExecutorClient {
 };
 
 // Builds an xla::LocalClient for the IPU platform.
+// GetPlatform("IPU") shows that we use IpuPlatform as backend.
 StatusOr<LocalClient*> GetIpuXlaClient() {
   TF_ASSIGN_OR_RETURN(se::Platform * platform,
-                      PlatformUtil::GetPlatform("Poplar"));
+                      PlatformUtil::GetPlatform("IPU"));
   if (platform->VisibleDeviceCount() <= 0) {
     return FailedPrecondition("No visible Graphcore IPU devices.");
   }
+
   LocalClientOptions options;
   options.set_platform(platform);
   return ClientLibrary::GetOrCreateLocalClient(options);
@@ -58,7 +60,6 @@ StatusOr<std::vector<std::unique_ptr<LocalDeviceState>>> BuildLocalDeviceStates(
   std::vector<std::unique_ptr<LocalDeviceState>> local_devices;
 
   size_t device_count = options.device_config().size();
-
   for (int i = 0; i < device_count; ++i) {
     se::StreamExecutor* executor =
         xla_client->backend().stream_executor(i).ValueOrDie();
@@ -90,14 +91,12 @@ std::vector<std::unique_ptr<PjRtStreamExecutorDevice>> BuildLocalDevices(
 
 StatusOr<IpuOptions> ParseIpuConfig(const IpuConfig& config) {
   TF_ASSIGN_OR_RETURN(se::Platform * platform,
-                      PlatformUtil::GetPlatform("Poplar"));
+                      PlatformUtil::GetPlatform("IPU"));
   size_t num_ipus = config.num_ipus;
   size_t max_num_ipus = platform->VisibleDeviceCount();
-  if (num_ipus == 0 ||
-      num_ipus > max_num_ipus) {
-    return InvalidArgument(
-        "Invalid number ipus to attach: ", num_ipus,
-        ", visible device count: ", max_num_ipus, ".");
+  if (num_ipus == 0 || num_ipus > max_num_ipus) {
+    return InvalidArgument("Invalid number ipus to attach: ", num_ipus,
+                           ", visible device count: ", max_num_ipus, ".");
   }
 
   IpuOptions options;

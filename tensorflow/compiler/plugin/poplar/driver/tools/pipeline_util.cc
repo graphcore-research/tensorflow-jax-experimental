@@ -933,7 +933,6 @@ StatusOr<pipeline_config::RecomputationMode> GetPipelineRecomputationMode(
     }
     default: { return FailedPrecondition("Unsupported RecomputationMode"); }
   }
-  // return FailedPrecondition("Unsupported RecomputationMode");
 }
 
 StatusOr<int> GetFifoDepthMultiplier(const HloInstruction* pipeline_op) {

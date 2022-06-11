@@ -259,28 +259,23 @@ class PoplarExecutor : public se::internal::StreamExecutorInterface {
                     std::function<Status()> callback) override;
 
   Status AllocateEvent(se::Event* event) override {
-    // return xla::Unimplemented("Not implemented");
-    return Status::OK();
+    return xla::Unimplemented("Not implemented");
   }
 
   Status DeallocateEvent(se::Event* event) override {
-    // return xla::Unimplemented("Not implemented");
-    return Status::OK();
+    return xla::Unimplemented("Not implemented");
   }
 
   Status RecordEvent(se::Stream* stream, se::Event* event) override {
-    // return xla::Unimplemented("Not implemented");
-    return Status::OK();
+    return xla::Unimplemented("Not implemented");
   }
 
   Status WaitForEvent(se::Stream* stream, se::Event* event) override {
-    // return xla::Unimplemented("Not implemented");
-    return Status::OK();
+    return xla::Unimplemented("Not implemented");
   }
 
   se::Event::Status PollForEventStatus(se::Event* event) override {
-    // return se::Event::Status::kError;
-    return se::Event::Status::kComplete;
+    return se::Event::Status::kError;
   }
 
   bool AllocateStream(se::Stream* stream) override { return true; }
