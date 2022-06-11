@@ -41,8 +41,7 @@ class IpuClient : public xla::PjRtStreamExecutorClient {
 };
 
 // Builds an xla::LocalClient for the IPU platform.
-// GetPlatform("IPU") shows that we use IpuPlatform as backend.
-StatusOr<LocalClient*> GetIpuXlaClient() {
+StatusOr<LocalClient*> GetIpuXlaClient(const IpuOptions& ipu_options) {
   TF_ASSIGN_OR_RETURN(se::Platform * platform,
                       PlatformUtil::GetPlatform("IPU"));
   if (platform->VisibleDeviceCount() <= 0) {
@@ -51,21 +50,31 @@ StatusOr<LocalClient*> GetIpuXlaClient() {
 
   LocalClientOptions options;
   options.set_platform(platform);
+
+  size_t device_count = ipu_options.device_config().size();
+  CHECK_GT(device_count, 0);
+
+  std::set<int> allowed_devices;
+  for (int i = 0; i < device_count; i++) {
+    allowed_devices.insert(i);
+  }
+  options.set_allowed_devices(allowed_devices);
   return ClientLibrary::GetOrCreateLocalClient(options);
 }
 
 // Builds a LocalDeviceState for each IPU present.
 StatusOr<std::vector<std::unique_ptr<LocalDeviceState>>> BuildLocalDeviceStates(
-    LocalClient* xla_client, bool asynchronous, IpuOptions options) {
+    LocalClient* xla_client, bool asynchronous, const IpuOptions& ipu_options) {
   std::vector<std::unique_ptr<LocalDeviceState>> local_devices;
 
-  size_t device_count = options.device_config().size();
+  size_t device_count = ipu_options.device_config().size();
+  CHECK_GT(device_count, 0);
   for (int i = 0; i < device_count; ++i) {
     se::StreamExecutor* executor =
         xla_client->backend().stream_executor(i).ValueOrDie();
 
     auto* e = static_cast<PoplarExecutor*>(executor->implementation());
-    TF_RETURN_IF_ERROR(e->ConfigurePoplarDevice(options));
+    TF_RETURN_IF_ERROR(e->ConfigurePoplarDevice(ipu_options));
 
     local_devices.push_back(absl::make_unique<LocalDeviceState>(
         executor, xla_client, LocalDeviceState::kComputeSynchronized,
@@ -116,7 +125,7 @@ IpuDevice::IpuDevice(int id,
 StatusOr<std::unique_ptr<PjRtClient>> GetIpuClient(bool asynchronous,
                                                    const IpuConfig& config) {
   IpuOptions options = ParseIpuConfig(config).ValueOrDie();
-  TF_ASSIGN_OR_RETURN(LocalClient * xla_client, GetIpuXlaClient());
+  TF_ASSIGN_OR_RETURN(LocalClient * xla_client, GetIpuXlaClient(options));
   TF_ASSIGN_OR_RETURN(
       std::vector<std::unique_ptr<LocalDeviceState>> local_device_states,
       BuildLocalDeviceStates(xla_client, asynchronous, options));
