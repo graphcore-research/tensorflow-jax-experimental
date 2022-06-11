@@ -33,9 +33,15 @@ class IpuCompiler : public PoplarCompiler {
   IpuCompiler() {}
   ~IpuCompiler() override {}
 
+  StatusOr<std::unique_ptr<HloModule>> RunHloPasses(
+      std::unique_ptr<HloModule> module, se::StreamExecutor* executor,
+      const CompileOptions& options) override;
+
   se::Platform::Id PlatformId() const override;
 
  private:
+  Status RunHloOptimization(HloModule* module);
+
   TF_DISALLOW_COPY_AND_ASSIGN(IpuCompiler);
 };
 

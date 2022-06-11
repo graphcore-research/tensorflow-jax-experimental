@@ -13,13 +13,34 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 #include "tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/ipu_compiler.h"
+
 #include <utility>
 #include <vector>
 
 #include "tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/ipu_platform_id.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/passes/assign_default_layout.h"
+#include "tensorflow/compiler/xla/service/hlo_pass_pipeline.h"
+#include "tensorflow/core/platform/default/logging.h"
+#include "tensorflow/core/platform/errors.h"
 
 namespace xla {
 namespace poplarplugin {
+
+Status IpuCompiler::RunHloOptimization(HloModule* module) {
+  HloPassPipeline pipeline("IpuCompiler");
+
+  pipeline.AddPass<AssignDefaultLayoutIfAbsent>();
+
+  return pipeline.Run(module).status();
+}
+
+StatusOr<std::unique_ptr<HloModule>> IpuCompiler::RunHloPasses(
+    std::unique_ptr<HloModule> module, se::StreamExecutor* executor,
+    const CompileOptions& options) {
+  VLOG(1) << "IpuCompiler: Run hlo passes on graph " << module->name();
+  TF_RETURN_IF_ERROR(RunHloOptimization(module.get()));
+  return std::move(module);
+}
 
 se::Platform::Id IpuCompiler::PlatformId() const { return kIpuPlatformId; }
 

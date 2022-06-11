@@ -3,7 +3,7 @@ load("//tensorflow/compiler/plugin/poplar:poplar.bzl", "poplar_cc_library")
 licenses(["restricted"])
 
 package(default_visibility = [
-    "//visibility:public",
+    "//tensorflow/compiler/plugin/poplar/xla_client:__subpackages__",
 ])
 
 poplar_cc_library(
@@ -26,6 +26,7 @@ poplar_cc_library(
     deps = [
         ":ipu_platform_id",
         "//tensorflow/compiler/plugin/poplar/driver:poplar_compiler",
+        "//tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/passes",
     ],
     alwayslink = True,
 )
