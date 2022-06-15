@@ -1,4 +1,5 @@
 load("//tensorflow/compiler/xla/tests:build_defs.bzl", "xla_test")
+load("//tensorflow/compiler/xla:xla.bzl", "xla_py_test_deps")
 
 licenses(["restricted"])
 
@@ -35,10 +36,30 @@ xla_test(
     ],
 )
 
+py_test(
+    name = "ipu_xla_client_test",
+    testonly = 1,
+    srcs = [
+        "ipu_xla_client_test.py",
+    ],
+    srcs_version = "PY3",
+    deps = [
+        "//tensorflow/compiler/plugin/poplar/xla_client/python:ipu_xla_client",
+        "//tensorflow/compiler/xla/python:custom_call_for_test",
+        "//tensorflow/compiler/xla/python:xla_client",
+        "//tensorflow/compiler/xla/python:xla_extension",
+        "//tensorflow/compiler/xla/python:xla_client_test",
+        "@absl_py//absl/flags",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ] + xla_py_test_deps(),
+)
+
 test_suite(
     name = "all_tests",
     tests = [
         "assign_default_layout_test",
         "ipu_backend_test",
+        "ipu_xla_client_test",
     ],
 )

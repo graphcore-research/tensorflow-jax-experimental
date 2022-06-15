@@ -16,7 +16,7 @@
 import os
 
 from tensorflow.compiler.xla.python import xla_client
-from tensorflow.compiler.plugin.poplar.xla_client import ipu_xla_client_pybind as _ipu_xla
+from tensorflow.compiler.plugin.poplar.xla_client.python import ipu_xla_client_pybind as _ipu_xla
 
 
 def make_ipu_client():
