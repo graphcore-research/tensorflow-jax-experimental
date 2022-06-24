@@ -19,6 +19,7 @@ limitations under the License.
 
 #include "tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/ipu_platform_id.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/passes/assign_default_layout.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/passes/input_output_aliasing.h"
 #include "tensorflow/compiler/xla/service/hlo_pass_pipeline.h"
 #include "tensorflow/core/platform/default/logging.h"
 #include "tensorflow/core/platform/errors.h"
@@ -30,6 +31,7 @@ Status IpuCompiler::RunHloOptimization(HloModule* module) {
   HloPassPipeline pipeline("IpuCompiler");
 
   pipeline.AddPass<AssignDefaultLayoutIfAbsent>();
+  pipeline.AddPass<InputOutputAliasing>();
 
   return pipeline.Run(module).status();
 }

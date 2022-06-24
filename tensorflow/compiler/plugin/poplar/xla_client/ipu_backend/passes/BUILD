@@ -21,8 +21,21 @@ poplar_cc_library(
 )
 
 poplar_cc_library(
+    name = "input_output_aliasing",
+    srcs = ["input_output_aliasing.cc"],
+    hdrs = ["input_output_aliasing.h"],
+    deps = [
+        "//tensorflow/compiler/xla/service:hlo",
+        "//tensorflow/compiler/xla/service:hlo_pass",
+        "//tensorflow/compiler/xla:statusor",
+        "@com_google_absl//absl/strings",
+    ],
+)
+
+poplar_cc_library(
     name = "passes",
     deps = [
         ":assign_default_layout",
+        ":input_output_aliasing",
     ],
 )

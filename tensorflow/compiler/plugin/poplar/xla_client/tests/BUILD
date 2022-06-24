@@ -36,6 +36,19 @@ xla_test(
     ],
 )
 
+xla_test(
+    name = "input_output_aliasing_test",
+    size = "small",
+    srcs = ["input_output_aliasing_test.cc"],
+    backends = ["poplar"],
+    copts = ["-fexceptions"],
+    deps = [
+        "//tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/passes:input_output_aliasing",
+        "//tensorflow/compiler/xla/tests:hlo_test_base",
+        "//tensorflow/compiler/xla/tests:xla_internal_test_main",
+    ],
+)
+
 py_test(
     name = "ipu_xla_client_test",
     testonly = 1,
@@ -59,6 +72,7 @@ test_suite(
     name = "all_tests",
     tests = [
         "assign_default_layout_test",
+        "input_output_aliasing_test",
         "ipu_backend_test",
         "ipu_xla_client_test",
     ],
