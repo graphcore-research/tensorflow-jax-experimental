@@ -12,6 +12,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+// This file has been modified by Graphcore Ltd.
 
 // This header declares the abstract class for the infeed manager that
 // is used by the CPU runtime to transfer buffers into an executing
@@ -71,6 +72,10 @@ class XfeedQueueManager {
   // buffer, i.e., ReleaseCurrentBuffer must be called between calls to
   // BlockingDequeueBuffer.
   XfeedBuffer* BlockingDequeueBuffer();
+
+  // Dequeues without blocking. Returns the buffer at the head of
+  // the queue or nullptr
+  XfeedBuffer* TryDequeueBuffer();
 
   // Releases the current buffer, which is the last buffer returned by
   // BlockingDequeuBuffer and not yet released. length and data must

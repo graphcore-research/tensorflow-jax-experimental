@@ -40,6 +40,7 @@ poplar_cc_library(
         "ipu_executor.h",
     ],
     deps = [
+        ":ipu_transfer_manager",
         "//tensorflow/compiler/plugin/poplar/driver:poplar_executor",
         "//tensorflow/compiler/xla:statusor",
     ],
@@ -56,7 +57,9 @@ poplar_cc_library(
     ],
     deps = [
         ":ipu_platform_id",
+        "//tensorflow/compiler/xla/service/cpu:cpu_runtime",
         "//tensorflow/compiler/xla/service:generic_transfer_manager",
+        "//tensorflow/core:framework_headers_lib",
     ],
     alwayslink = True,
 )

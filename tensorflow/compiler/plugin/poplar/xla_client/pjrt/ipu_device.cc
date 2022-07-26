@@ -112,6 +112,19 @@ StatusOr<IpuOptions> ParseIpuConfig(const IpuConfig& config) {
   for (size_t i = 0; i < num_ipus; i++) {
     options.add_device_config()->set_auto_count(1);
   }
+
+  // PrefetchConfig
+  options.set_prefetch_data_streams(config.prefetch_data_streams);
+
+  auto* speed_size_cfg = options.mutable_speed_size_config();
+  speed_size_cfg->set_always_rearrange_copies_on_the_host(
+      config.always_rearrange_copies_on_the_host);
+
+  // IOTilesConfig
+  options.set_num_io_tiles(config.num_io_tiles);
+  options.set_place_ops_on_io_tiles(config.place_ops_on_io_tiles);
+  options.set_io_tile_available_memory_proportion(config.io_tile_available_memory_proportion);
+
   return options;
 }
 }  // namespace

@@ -16,6 +16,7 @@ limitations under the License.
 #ifndef TENSORFLOW_COMPILER_PLUGIN_POPLAR_XLA_CLIENT_IPU_BACKEND_IPU_EXECUTOR_H_
 #define TENSORFLOW_COMPILER_PLUGIN_POPLAR_XLA_CLIENT_IPU_BACKEND_IPU_EXECUTOR_H_
 
+#include "tensorflow/compiler/plugin/poplar/driver/poplar_executable.h"
 #include "tensorflow/compiler/plugin/poplar/driver/poplar_executor.h"
 #include "tensorflow/compiler/xla/statusor.h"
 #include "tensorflow/stream_executor/stream_executor_internal.h"
@@ -43,6 +44,20 @@ class IpuExecutor : public PoplarExecutor {
   se::Event::Status PollForEventStatus(se::Event* event) override {
     return se::Event::Status::kComplete;
   }
+
+  Status RegisterOutfeeds(const TranslatedOutfeedInfos& outfeed_infos) override;
+
+ private:
+  void ConnectInfeedsToStreamCallback(
+      const TranslatedInfeedInfos& infeed_infos) override;
+
+  Status SetupInfeedReplication(const TranslatedInfeedInfos& infeed_infos) override;
+
+  void ConnectOutfeedToStreamCallback(
+      const TranslatedOutfeedInfos& outfeed_infos) override;
+
+  void LaunchInfeedThreads(const TranslatedInfeedInfos& infeed_infos) override;
+  void LaunchOutfeedThreads(const TranslatedOutfeedInfos& outfeed_infos) override;
 };
 
 }  // namespace poplarplugin

@@ -37,6 +37,25 @@ xla_test(
 )
 
 xla_test(
+    name = "infeed_outfeed_test",
+    size = "large",
+    srcs = ["infeed_outfeed_test.cc"],
+    backends = ["poplar"],
+    copts = ["-fexceptions"],
+    deps = [
+        "//tensorflow/compiler/plugin/poplar/xla_client/ipu_backend:ipu_compiler",
+        "//tensorflow/compiler/plugin/poplar/xla_client/ipu_backend:ipu_platform",
+        "//tensorflow/compiler/plugin/poplar/xla_client/pjrt:ipu_pjrt_client",
+        "//tensorflow/compiler/xla:literal",
+        "//tensorflow/compiler/xla:shape_util",
+        "//tensorflow/compiler/xla/service:platform_util",
+        "//tensorflow/compiler/xla/tests:hlo_test_base",
+        "//tensorflow/compiler/xla/tests:local_client_test_base",
+        "//tensorflow/compiler/xla/tests:xla_internal_test_main",
+    ],
+)
+
+xla_test(
     name = "input_output_aliasing_test",
     size = "small",
     srcs = ["input_output_aliasing_test.cc"],
@@ -44,6 +63,19 @@ xla_test(
     copts = ["-fexceptions"],
     deps = [
         "//tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/passes:input_output_aliasing",
+        "//tensorflow/compiler/xla/tests:hlo_test_base",
+        "//tensorflow/compiler/xla/tests:xla_internal_test_main",
+    ],
+)
+
+xla_test(
+    name = "feed_token_verifier_test",
+    size = "small",
+    srcs = ["feed_token_verifier_test.cc"],
+    backends = ["poplar"],
+    copts = ["-fexceptions"],
+    deps = [
+        "//tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/passes:feed_token_verifier",
         "//tensorflow/compiler/xla/tests:hlo_test_base",
         "//tensorflow/compiler/xla/tests:xla_internal_test_main",
     ],
@@ -72,6 +104,7 @@ test_suite(
     name = "all_tests",
     tests = [
         "assign_default_layout_test",
+        "infeed_outfeed_test",
         "input_output_aliasing_test",
         "ipu_backend_test",
         "ipu_xla_client_test",

@@ -12,6 +12,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+// This file has been modified by Graphcore Ltd.
 
 #include "tensorflow/compiler/xla/service/cpu/xfeed_manager.h"
 
@@ -59,6 +60,19 @@ XfeedBuffer* XfeedQueueManager::BlockingDequeueBuffer() {
   VLOG(3) << "Waiting for an available buffer.";
   while (enqueued_buffers_.empty()) {
     cv_.Wait(&mu_);
+  }
+  VLOG(3) << "A buffer is available!";
+  CHECK(current_buffer_ == nullptr);
+  current_buffer_ = enqueued_buffers_.front();
+  enqueued_buffers_.pop_front();
+  return current_buffer_;
+}
+
+XfeedBuffer* XfeedQueueManager::TryDequeueBuffer() {
+  absl::MutexLock l(&mu_);
+  VLOG(3) << "Trying to dequeue a buffer.";
+  if (enqueued_buffers_.empty()) {
+    return nullptr;
   }
   VLOG(3) << "A buffer is available!";
   CHECK(current_buffer_ == nullptr);

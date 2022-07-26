@@ -110,7 +110,7 @@ class ModuleFilenames {
 };
 
 class PoplarExecutor : public se::internal::StreamExecutorInterface {
- private:
+ protected:
   // Represents a handle to an input/output argument where the identity is
   // defined by the parameter index and tuple index. The name doesn't partipate
   // in any comparison operations.
@@ -667,7 +667,7 @@ class PoplarExecutor : public se::internal::StreamExecutorInterface {
   int64_t GetReplicationFactorForOutfeed(const std::string& feed_id,
                                          bool warn_when_unconnected) const;
 
-  Status RegisterOutfeeds(const TranslatedOutfeedInfos& outfeed_infos);
+  virtual Status RegisterOutfeeds(const TranslatedOutfeedInfos& outfeed_infos);
 
   bool HasOutfeed(const std::string& feed_id) const;
   Status DeleteOutfeed(const std::string& feed_id);
@@ -723,7 +723,7 @@ class PoplarExecutor : public se::internal::StreamExecutorInterface {
 
   void SetCurrentReplicationFactor(int64_t executable_replication_factor);
 
- private:
+ protected:
   Status ExecuteEngineImpl(se::DeviceMemoryBase* result_buffer,
                            se::StreamExecutor* executor,
                            PoplarExecutable& executable,
@@ -950,14 +950,14 @@ class PoplarExecutor : public se::internal::StreamExecutorInterface {
 
   // Connect buffers provided by infeed transfer manager to Poplar
   // HostToDevice FIFO
-  void ConnectInfeedsToStreamCallback(
+  virtual void ConnectInfeedsToStreamCallback(
       const TranslatedInfeedInfos& infeed_infos);
 
-  Status SetupInfeedReplication(const TranslatedInfeedInfos& infeed_infos);
+  virtual Status SetupInfeedReplication(const TranslatedInfeedInfos& infeed_infos);
 
   // Connect buffers provided by transfer manager to Poplar
   // deviceToHostFIFO()
-  void ConnectOutfeedToStreamCallback(
+  virtual void ConnectOutfeedToStreamCallback(
       const TranslatedOutfeedInfos& outfeed_infos);
 
   IOFunction CreateInfeedIOThreadFunction(
@@ -967,8 +967,8 @@ class PoplarExecutor : public se::internal::StreamExecutorInterface {
 
   // Creates and launches the threads which send/receive data from the Poplar
   // stream callbacks.
-  void LaunchInfeedThreads(const TranslatedInfeedInfos& infeed_infos);
-  void LaunchOutfeedThreads(const TranslatedOutfeedInfos& outfeed_infos);
+  virtual void LaunchInfeedThreads(const TranslatedInfeedInfos& infeed_infos);
+  virtual void LaunchOutfeedThreads(const TranslatedOutfeedInfos& outfeed_infos);
 
   // Blocks until all the IOThreads stop.
   void StopIOThreads();
