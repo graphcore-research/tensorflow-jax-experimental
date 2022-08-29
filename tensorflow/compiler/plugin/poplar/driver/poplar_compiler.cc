@@ -1155,7 +1155,6 @@ Status TransformHlo(HloModule* module, PoplarExecutor* poplar_executor,
       pass.AddPass<HloCSE>(true);
     }
     pipeline.AddPass<SortSimplifier>();
-    pipeline.AddPass<RootTokenReplacer>();
     pipeline.AddPass<ReshapeMover>();
     pipeline.AddPass<MapInliner>();
     AddAlgebraicOptimizerPass(pipeline, pipeline_compiler_stats.get(),
@@ -1315,6 +1314,8 @@ Status TransformHlo(HloModule* module, PoplarExecutor* poplar_executor,
         "with control dependencies", pipeline_compiler_stats.get());
     pipeline.AddInvariantChecker<ResourceUpdateChecker>();
 
+    // Late root token replacer, to solve JAX infeed/outfeed bug.
+    pipeline.AddPass<RootTokenReplacer>();  
     pipeline.AddPass<HostEmbeddingNotification>();
     pipeline.AddPass<RecomputationInputRemover>();
     pipeline.AddPass<RecomputeInstructions>(resources.recomputation_enabled);

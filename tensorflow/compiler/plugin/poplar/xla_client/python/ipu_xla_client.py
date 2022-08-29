@@ -76,6 +76,7 @@ def make_ipu_client():
   io_tile_available_memory_proportion = \
       os.getenv('XLA_IPU_PLATFORM_IO_TILE_AVAILABLE_MEMORY_PROPORTION')
   if io_tile_available_memory_proportion:
-    ipu_config.io_tile_available_memory_proportion = float(io_tile_available_memory_proportion)
+    ipu_config.io_tile_available_memory_proportion \
+      = float(io_tile_available_memory_proportion)
 
   return _ipu_xla.get_ipu_client(asynchronous=True, ipu_config=ipu_config)
