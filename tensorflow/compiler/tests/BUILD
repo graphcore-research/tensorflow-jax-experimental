@@ -813,6 +813,9 @@ tf_xla_py_test(
         "cpu",
         "gpu",
     ],
+    disabled_backends = [
+        "poplar",
+    ],
     python_version = "PY3",
     shard_count = 10,
     tags = [
@@ -2205,6 +2208,12 @@ tf_xla_py_test(
     name = "where_op_test",
     size = "small",
     srcs = ["where_op_test.py"],
+    disabled_backends = [
+        "cpu",
+        "cpu_ondemand",
+        "gpu",
+        "poplar",
+    ],
     enable_mlir_bridge = False,
     tags = [
         "no_pip",

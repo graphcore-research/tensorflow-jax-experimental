@@ -256,7 +256,11 @@ static std::vector<const xla::Shape*> GetShapePointers(
 
 static xla::ExecutableBuildOptions GetBuildOptions(
     const XlaCompiler::Options& options,
-    const XlaCompiler::CompilationResult& result, int default_device_ordinal) {
+    const XlaCompiler::CompilationResult& result, 
+    int default_device_ordinal,
+    const std::vector<int32>& argument_input_indices,
+    const std::vector<int32>& resource_input_indices,
+    const std::vector<bool>& resource_input_initialized) {
   xla::ExecutableBuildOptions build_options;
   if (result.collective_info) {
     build_options.set_num_replicas(result.collective_info->group_size);
@@ -266,6 +270,16 @@ static xla::ExecutableBuildOptions GetBuildOptions(
                                        : default_device_ordinal);
   build_options.set_result_layout(result.xla_output_shape);
   build_options.set_device_allocator(options.device_allocator.get());
+  build_options.set_argument_input_indices(argument_input_indices);
+  build_options.set_resource_input_indices(resource_input_indices);
+  build_options.set_resource_input_initialized(resource_input_initialized);
+  std::vector<int> resource_update_to_input_index;
+  std::transform(
+      result.resource_updates.begin(), result.resource_updates.end(),
+      std::back_inserter(resource_update_to_input_index),
+      [](XlaCompiler::ResourceUpdate const& x) { return x.input_index; });
+  build_options.set_resource_update_to_input_index(
+      resource_update_to_input_index);
   build_options.set_alias_passthrough_params(options.alias_passthrough_params);
   build_options.mutable_debug_options()->set_xla_detailed_logging_and_dumping(
       options.detailed_logging);
@@ -278,13 +292,17 @@ static xla::ExecutableBuildOptions GetBuildOptions(
 Status XlaCompilationCache::BuildExecutable(
     const XlaCompiler::Options& options,
     const XlaCompiler::CompilationResult& result,
+    const std::vector<int32>& argument_input_indices,
+    const std::vector<int32>& resource_input_indices,
+    const std::vector<bool>& resource_input_initialized,
     std::unique_ptr<xla::LocalExecutable>* executable) {
   VLOG(2) << "Compiling to local executable";
 
   std::vector<const xla::Shape*> argument_layouts =
       GetShapePointers(result.xla_input_shapes);
   xla::ExecutableBuildOptions build_options =
-      GetBuildOptions(options, result, client_->default_device_ordinal());
+      GetBuildOptions(options, result, client_->default_device_ordinal(),
+                      argument_input_indices, resource_input_indices, resource_input_initialized);
   TF_ASSIGN_OR_RETURN(
       auto executables,
       client_->Compile(*result.computation, argument_layouts, build_options));
@@ -488,6 +506,33 @@ Status XlaCompilationCache::CompileStrict(
   tensorflow::Env* env = tensorflow::Env::Default();
   const uint64 compile_start_us = env->NowMicros();
 
+  // IPU specific changes begin.
+  std::vector<int32> argument_input_indices;
+  std::vector<int32> resource_input_indices;
+  std::vector<bool> resource_input_initialized;
+  for (int64 i = 0; i != args.size(); ++i) {
+    const XlaCompiler::Argument& arg = args[i];
+    switch (arg.kind) {
+      case XlaCompiler::Argument::kTensorList:
+      case XlaCompiler::Argument::kToken:
+      case XlaCompiler::Argument::kParameter: {
+        argument_input_indices.push_back(i);
+        break;
+      }
+      case XlaCompiler::Argument::kConstantResource:
+      case XlaCompiler::Argument::kResource: {
+        resource_input_indices.push_back(i);
+        resource_input_initialized.push_back(arg.initialized);
+        break;
+      }
+      case XlaCompiler::Argument::kConstant: {
+        break;
+      }
+      default: { return xla::InternalError("Unknown Xla Argument type."); }
+    }
+  }
+  // IPU specific changes end.
+
   XlaCompiler compiler(options);
   entry->compile_state = CompileState::kCompiled;
   entry->compilation_status = [&] {
@@ -537,6 +582,7 @@ Status XlaCompilationCache::CompileStrict(
 
   if (serialized_entry.has_value()) {
     VLOG(1) << "Loading cached entry for: " << sig.HumanString();
+    // TODO: IPU modifications?
     StatusOr<std::unique_ptr<xla::LocalExecutable>> executable = LoadExecutable(
         options, entry->compilation_result, serialized_entry->executable());
     entry->compilation_status = executable.status();
@@ -544,8 +590,9 @@ Status XlaCompilationCache::CompileStrict(
       entry->executable = *std::move(executable);
     }
   } else {
-    entry->compilation_status =
-        BuildExecutable(options, entry->compilation_result, &entry->executable);
+    entry->compilation_status = BuildExecutable(
+        options, entry->compilation_result, argument_input_indices,
+        resource_input_indices, resource_input_initialized, &entry->executable);
 
     // Caching is done regardless of the entry->compilation_status. To take
     // advantage of newer compilation code, a cache flush is required.

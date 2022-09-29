@@ -59,60 +59,70 @@ StatusOr<bool> TupleSimplifier::RemoveWholeTuple(HloInstruction* tuple) {
   return changed;
 }
 
+StatusOr<bool> TupleSimplifier::RunOnComputation(HloComputation* computation) {
+  // Initially add all GTE and Tuple instructions to the worklist.
+  bool changed = false;
+
+  for (auto* instruction : computation->MakeInstructionPostOrder()) {
+    if (instruction->opcode() == HloOpcode::kTuple) {
+      TF_ASSIGN_OR_RETURN(changed, RemoveWholeTuple(instruction));
+    } else {
+      auto ancestor = instruction->LatestNonGteAncestorAndIndex();
+      if (ancestor.first == instruction) {
+        continue;
+      }
+      // If possible replace a chain of GTE with the operation which produces
+      // the element. For example, replace uses of GTE with below with just
+      // 'Op' (assuming 'Op' is at the index of the GTE instruction):
+      //
+      //     ...  Op ...
+      //       \  |   /
+      //        Tuple
+      //          |
+      //         GTE
+      //         ...
+      //          |
+      //         GTE
+      //          |
+      //         GTE
+      //
+      // Note that this deletes the Tuple instruction altogether. In addition,
+      // if only a subset of tuple's elements are used, this transform
+      // optimizes them one at a time, and after the last use is optimized,
+      // the Tuple will also be deleted.
+      HloInstruction* replacement = nullptr;
+      if (ShapeUtil::Compatible(ancestor.first->shape(),
+                                instruction->shape())) {
+        replacement = ancestor.first;
+      } else if (ancestor.first->opcode() == HloOpcode::kTuple) {
+        replacement = ancestor.first->mutable_operand(ancestor.second[0]);
+      }
+
+      if (replacement) {
+        TF_ASSIGN_OR_RETURN(bool replaced, computation->ReplaceInstruction(
+                                                instruction, replacement,
+                                                /*preserve_sharding=*/true));
+        changed |= replaced;
+      }
+    }
+  }
+  return changed;
+}
+
 StatusOr<bool> TupleSimplifier::Run(
     HloModule* module,
     const absl::flat_hash_set<absl::string_view>& execution_threads) {
-  // Initially add all GTE and Tuple instructions to the worklist.
   bool changed = false;
-  for (auto* computation : module->computations(execution_threads)) {
+  for (auto* computation : module->MakeComputationPostOrder(execution_threads)) {
     if (exclude_entry_computation_ &&
         computation == module->entry_computation()) {
       continue;
     }
-    for (auto* instruction : computation->MakeInstructionPostOrder()) {
-      if (instruction->opcode() == HloOpcode::kTuple) {
-        TF_ASSIGN_OR_RETURN(changed, RemoveWholeTuple(instruction));
-      } else {
-        auto ancestor = instruction->LatestNonGteAncestorAndIndex();
-        if (ancestor.first == instruction) {
-          continue;
-        }
-        // If possible replace a chain of GTE with the operation which produces
-        // the element. For example, replace uses of GTE with below with just
-        // 'Op' (assuming 'Op' is at the index of the GTE instruction):
-        //
-        //     ...  Op ...
-        //       \  |   /
-        //        Tuple
-        //          |
-        //         GTE
-        //         ...
-        //          |
-        //         GTE
-        //          |
-        //         GTE
-        //
-        // Note that this deletes the Tuple instruction altogether. In addition,
-        // if only a subset of tuple's elements are used, this transform
-        // optimizes them one at a time, and after the last use is optimized,
-        // the Tuple will also be deleted.
-        HloInstruction* replacement = nullptr;
-        if (ShapeUtil::Compatible(ancestor.first->shape(),
-                                  instruction->shape())) {
-          replacement = ancestor.first;
-        } else if (ancestor.first->opcode() == HloOpcode::kTuple) {
-          replacement = ancestor.first->mutable_operand(ancestor.second[0]);
-        }
-
-        if (replacement) {
-          TF_ASSIGN_OR_RETURN(bool replaced, computation->ReplaceInstruction(
-                                                 instruction, replacement,
-                                                 /*preserve_sharding=*/true));
-          changed |= replaced;
-        }
-      }
-    }
+    TF_ASSIGN_OR_RETURN(bool computation_changed,
+                        RunOnComputation(computation));
+    changed |= computation_changed;
   }
+
   return changed;
 }
 

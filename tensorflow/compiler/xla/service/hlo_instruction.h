@@ -1279,7 +1279,9 @@ class HloInstruction {
           eq_operands = std::equal_to<const HloInstruction*>(),
       const std::function<bool(const HloComputation*, const HloComputation*)>&
           eq_computations = std::equal_to<const HloComputation*>(),
-      bool layout_sensitive = true) const {
+      bool layout_sensitive = true,
+      const std::function<bool(const std::string&, const std::string&)>&
+          eq_backend_config = std::equal_to<std::string>()) const {
     return IdenticalInternal(other, eq_operands, eq_computations,
                              layout_sensitive,
                              /*ignore_channel_id_values=*/false,
@@ -1309,7 +1311,9 @@ class HloInstruction {
           eq_operands = std::equal_to<const HloInstruction*>(),
       const std::function<bool(const HloComputation*, const HloComputation*)>&
           eq_computations = std::equal_to<const HloComputation*>(),
-      bool layout_sensitive = true) const {
+      bool layout_sensitive = true,
+      const std::function<bool(const std::string&, const std::string&)>&
+          eq_backend_config = std::equal_to<std::string>()) const {
     return IdenticalInternal(other, eq_operands, eq_computations,
                              layout_sensitive,
                              /*ignore_channel_id_values=*/true,

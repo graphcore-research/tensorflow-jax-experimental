@@ -428,7 +428,6 @@ Status BuildComputation(
 
 }  // namespace
 
-
 string XlaCompiler::Argument::HumanString() const {
   string common;
   if (!name.empty()) {
@@ -1115,6 +1114,13 @@ Status XlaCompiler::BuildArguments(
     }
   } else {
     for (std::vector<int>::size_type i = 0; i < input_to_args->size(); ++i) {
+      const XlaCompiler::Argument& arg = args[input_to_args->at(i)];
+      if (arg.name.empty()) {
+        arg_metadata.set_op_name("XLA_Args");
+      } else {
+        arg_metadata.set_op_name("XLA_Args/" + arg.name);
+      }
+      builder->SetOpMetadata(arg_metadata);
       auto it = arg_shardings.find(i);
       xla::XlaScopedShardingAssignment assign_sharding(
           builder, it == arg_shardings.end() ? std::optional<xla::OpSharding>()
@@ -1409,9 +1415,14 @@ Status XlaCompiler::CompileGraph(
   result->computation = std::make_shared<xla::XlaComputation>();
   result->outputs.resize(context->retvals().size());
   std::vector<XlaExpression> retvals = context->retvals();
-  ConvertConstantsToExpressions(&builder, absl::Span<XlaExpression>(retvals));
+
+  // IPU specific change.
+  if (!options.keep_constant_expression_outputs) {
+    ConvertConstantsToExpressions(&builder, absl::Span<XlaExpression>(retvals));
+  }
   XlaShapeLayoutHelpers::ShapeDeterminationFns shape_determination_fns{
       UseNoPreferenceLayoutFn(), IdentityShapeRepresentationFn()};
+
   TF_RETURN_IF_ERROR(BuildComputation(
       real_args, retvals, arg_shardings, retval_shardings, context->resources(),
       std::move(token_output),

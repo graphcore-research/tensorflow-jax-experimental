@@ -987,6 +987,8 @@ xla_test(
         "cpu",
         "gpu",
         "interpreter",
+        # IPU specific change.
+        "poplar",
     ],
     tags = [
         "nozapfhahn",
@@ -1173,6 +1175,8 @@ xla_test(
     disabled_backends = [
         "cpu",
         "gpu",
+        # IPU specific change.
+        "poplar",
     ],
     shard_count = 50,
     tags = [

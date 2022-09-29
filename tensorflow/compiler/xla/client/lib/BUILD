@@ -548,6 +548,7 @@ xla_test(
         "//tensorflow/compiler/xla/tests:xla_internal_test_main",
         "//tensorflow/core:test",
     ],
+    disabled_backends = ["poplar"], # T53559 Requires poplar change
 )
 
 cc_library(

@@ -2,6 +2,9 @@
 
 # Import third party config rules.
 load("//tensorflow:version_check.bzl", "check_bazel_version_at_least")
+load("//third_party/ipus:poplar_configure.bzl", "poplar_configure")
+load("//third_party/ipus/popit_lib:popit_configure.bzl", "popit_configure")
+load("//third_party/ipus/popdist_lib:popdist_configure.bzl", "popdist_configure")
 load("//third_party/gpus:cuda_configure.bzl", "cuda_configure")
 load("//third_party/gpus:rocm_configure.bzl", "rocm_configure")
 load("//third_party/tensorrt:tensorrt_configure.bzl", "tensorrt_configure")
@@ -96,6 +99,11 @@ def _tf_toolchains():
     python_configure(name = "local_config_python")
     rocm_configure(name = "local_config_rocm")
     remote_execution_configure(name = "local_config_remote_execution")
+
+    # IPU specific.
+    poplar_configure(name="local_config_poplar")
+    popit_configure(name="local_config_popit")
+    popdist_configure(name="local_config_popdist")
 
     # For windows bazel build
     # TODO: Remove def file filter when TensorFlow can export symbols properly on Windows.

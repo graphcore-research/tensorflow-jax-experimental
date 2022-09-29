@@ -41,6 +41,8 @@ class TupleSimplifier : public HloModulePass {
       HloModule* module,
       const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
+  static StatusOr<bool> RunOnComputation(HloComputation* computation);
+
  private:
   // When set, this pipeline stage will perform optimization of all computations
   // apart from the module's entry computation. This is used by Graphcore's
@@ -59,7 +61,7 @@ class TupleSimplifier : public HloModulePass {
   //         |
   //       Tuple
   //
-  StatusOr<bool> RemoveWholeTuple(HloInstruction* tuple);
+  static StatusOr<bool> RemoveWholeTuple(HloInstruction* tuple);
 };
 
 }  // namespace xla
