@@ -296,7 +296,7 @@ StatusOr<bool> ProcessModule(HloModule* module) {
     }
 
     // Skip parallel context.
-    if (callsites[0].context() == CallContext::kParallel) {
+    if (callsites[0].context() == CallContext::kEmbedded) {
       continue;
     }
 

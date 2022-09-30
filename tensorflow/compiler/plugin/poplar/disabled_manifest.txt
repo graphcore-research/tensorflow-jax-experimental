@@ -112,6 +112,7 @@ XlaOpsNumericalTest.testShiftRightArithmetic  # Unsigned int
 XlaOpsNumericalTest.testShiftRightLogical # Unsigned int
 XlaOpsNumericalTest.testVariadicReduce # Variadic reduction not supported
 XlaOpsNumericalTest.testDotGeneralInt8xInt8ToInt32 # Don't support int8
+XlaOpsNumericalTest.testRngBitGeneratorIsDeterministic # T37613 - Need to support kRngBitGenerator
 XlaSortOpTest.testTopK_200000
 XlaSortOpTest.testTopKLarge
 XlaSortOpTest.testTopK2D_200000
@@ -130,3 +131,4 @@ MatrixDiagPartTest.testSingleMatrix # need popops::reduce(OR, int)
 SLogDetOpTest # Need to register LogMatrixDeterminant op
 TridiagonalSolveOpsTest # need to register TridiagonalSolve op
 StatefulRandomOpsTest # T37613 - Need to support kRngBitGenerator
+CastOpsTest.testBitcastToLarger # T64432 - No bitcast for type with different data size.

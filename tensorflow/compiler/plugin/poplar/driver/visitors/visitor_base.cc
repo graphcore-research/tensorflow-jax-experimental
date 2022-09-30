@@ -156,6 +156,17 @@ Status BaseVisitor::HandleTupleSelect(HloInstruction* inst) {
 
 Status BaseVisitor::HandleBitcastConvert(HloInstruction* inst) {
   VLOG(1) << "Processing " << inst->name();
+
+  if (ShapeUtil::ByteSizeOfPrimitiveType(inst->shape().element_type()) !=
+      ShapeUtil::ByteSizeOfPrimitiveType(
+          inst->operand(0)->shape().element_type())) {
+    return UnimplementedStrCat(
+        "Cannot perform a bitcast where the size of the input type is not the "
+        "same size as the output type: ",
+        inst->ToString());
+  }
+
+  auto& graph = GetGraph(resources_, inst);
   poplar::DebugNameAndId debug_name_and_id = GetDebugNameAndId(inst);
   DriverProgramSequence seq(debug_name_and_id);
 

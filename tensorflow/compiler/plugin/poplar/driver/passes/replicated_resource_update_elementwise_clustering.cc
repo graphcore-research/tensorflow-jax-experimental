@@ -241,7 +241,7 @@ ReplicatedResourceUpdateElementwiseClustering::AddClusterInput(
     HloInstruction* scatter_input =
         builder->AddInstruction(CreateCollectiveReorderInstruction(parameter));
 
-    HloInstruction* scatter = builder->AddInstruction(CreateReduceScatter(
+    HloInstruction* scatter = builder->AddInstruction(CreatePoplarReduceScatter(
         in_comp_shape, {scatter_input}, status_or_collective_op.ValueOrDie(),
         PoplarReplicaGroups::Consecutive(partition_replication_factor_)));
 
@@ -357,7 +357,7 @@ ReplicatedResourceUpdateElementwiseClustering::AddClusterInput(
   // reduce-scatter(op=LOCAL) slices replica-specific shard of the collective
   // input tensor and does nothing with the values. This is more memory/cycles
   // efficient than doing dynamic-slice(replication-index() * shard_size).
-  HloInstruction* slice = builder->AddInstruction(CreateReduceScatter(
+  HloInstruction* slice = builder->AddInstruction(CreatePoplarReduceScatter(
       slice_shape, {scatter_input}, CollectiveOperator::COLLECTIVE_OP_LOCAL,
       PoplarReplicaGroups::Consecutive(partition_replication_factor_)));
 

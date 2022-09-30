@@ -72,7 +72,7 @@ PoplarReplicaGroups HloReduceScatterInstruction::GetPoplarReplicaGroups()
   return replica_groups_;
 }
 
-std::unique_ptr<HloInstruction> CreateReduceScatter(
+std::unique_ptr<HloInstruction> CreatePoplarReduceScatter(
     const Shape& shape, absl::Span<HloInstruction* const> inputs,
     CollectiveOperator op, PoplarReplicaGroups replica_groups) {
   return absl::make_unique<HloReduceScatterInstruction>(shape, inputs, op,
@@ -83,7 +83,7 @@ std::unique_ptr<HloInstruction>
 HloReduceScatterInstruction::CloneWithNewOperandsImpl(
     const Shape& shape, absl::Span<HloInstruction* const> operands,
     HloCloneContext*) const {
-  return CreateReduceScatter(shape, operands, op_, replica_groups_);
+  return CreatePoplarReduceScatter(shape, operands, op_, replica_groups_);
 }
 
 std::vector<std::string>
@@ -120,8 +120,8 @@ static HloPoplarInstructionFactory reduce_scatter_factory(
       const auto replica_groups =
           PoplarReplicaGroups::Consecutive(replica_group_size);
 
-      return CreateReduceScatter(call->shape(), call->operands(), op,
-                                 replica_groups);
+      return CreatePoplarReduceScatter(call->shape(), call->operands(), op,
+                                       replica_groups);
     });
 
 }  // namespace

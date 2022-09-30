@@ -64,7 +64,7 @@ bool AllowedComputation(CallGraph& call_graph, HloComputation* comp) {
 
   CallContext context = GetInstructionCallContext(callers[0]->opcode());
   // Do not consider map/reduce/fusion computations.
-  return context == CallContext::kSequential;
+  return context == CallContext::kControlFlow;
 }
 
 StatusOr<bool> ConvertToReallocatingCopy(HloInstruction* copy) {

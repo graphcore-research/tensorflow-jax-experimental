@@ -19,25 +19,25 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/hlo_instruction.h"
 
 namespace xla {
-class AlgebraicSimplifierVisitor;
+class PoplarAlgebraicSimplifierVisitor;
 
 namespace poplarplugin::algebraic_simplifier::dot {
 StatusOr<HloInstruction*> OptimizeDotOfConcat(
-    AlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
+    PoplarAlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
 
 StatusOr<HloInstruction*> OptimizeDotOfConcatHelper(
-    AlgebraicSimplifierVisitor* visitor, const HloInstruction& dot,
+    PoplarAlgebraicSimplifierVisitor* visitor, const HloInstruction& dot,
     HloInstruction* lhs, int64_t lhs_contracting_dim, HloInstruction* rhs,
     int64_t rhs_contracting_dim, bool swapped);
 
 StatusOr<HloInstruction*> OptimizeDotOfGather(
-    AlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
+    PoplarAlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
 
 StatusOr<HloInstruction*> OptimizeDotOfReorderContractingDims(
-    AlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
+    PoplarAlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
 
 StatusOr<HloInstruction*> OptimizeDotStrengthReduction(
-    AlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
+    PoplarAlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
 }  // namespace poplarplugin::algebraic_simplifier::dot
 }  // namespace xla
 

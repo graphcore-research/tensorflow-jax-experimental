@@ -953,7 +953,7 @@ bool HloDataflowAnalysis::UpdateParameterValueSet(HloInstruction* parameter) {
           GetInstructionValueSet(callsite.instruction()->operand(0)),
           {0, parameter->parameter_number()});
     } else {
-      LOG(FATAL) << "CallContext::kSequential computations should only be "
+      LOG(FATAL) << "CallContext::kControlFlow computations should only be "
                     "called from call, while, or conditional instructions";
     }
   }

@@ -180,7 +180,7 @@ class HloRematerialization : public HloModulePass {
 
   // The peak memory usage of each computation. The map contains only those
   // computations called from sequential context
-  // (CallContext::kSequential). These values are updated as rematerialization
+  // (CallContext::kControlFlow). These values are updated as rematerialization
   // occurs.
   absl::flat_hash_map<const HloComputation*, int64_t> computation_peak_memory_;
 

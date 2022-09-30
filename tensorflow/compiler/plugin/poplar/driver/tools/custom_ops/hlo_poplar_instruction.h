@@ -45,7 +45,8 @@ class HloPoplarInstruction : public HloCustomCallInstruction {
   HloPoplarInstruction(const Shape& shape,
                        absl::Span<HloInstruction* const> operands, PoplarOp op,
                        Args&&... attributes)
-      : HloCustomCallInstruction(shape, operands, PoplarOp_Name(op), "") {
+      : HloCustomCallInstruction(shape, operands, PoplarOp_Name(op), "",
+                                 CustomCallApiVersion::API_VERSION_ORIGINAL) {
     // Hash all attributes to prevent comparisons of ops from false positives
     int64_t hash = hash_util::hash(std::forward<Args>(attributes)...);
 

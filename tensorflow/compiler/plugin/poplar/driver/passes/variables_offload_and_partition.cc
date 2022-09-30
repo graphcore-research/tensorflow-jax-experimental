@@ -228,7 +228,7 @@ StatusOr<HloInstruction*> InsertReplicatedStoreInstructions(
     // input tensor and does nothing with the values. This is more memory/cycles
     // efficient than doing dynamic-slice(replication-index() * shard_size).
     Shape slice_shape = ShapeUtil::MakeShape(element_type, {element_count});
-    output = builder.AddInstruction(CreateReduceScatter(
+    output = builder.AddInstruction(CreatePoplarReduceScatter(
         slice_shape, {output}, CollectiveOperator::COLLECTIVE_OP_LOCAL,
         PoplarReplicaGroups::Consecutive(partition_replication_factor)));
 

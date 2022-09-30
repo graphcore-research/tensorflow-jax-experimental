@@ -56,7 +56,7 @@ StatusOr<HloInstruction*> NormalizeDotOperandToBatchMajorAndContractingMinor(
 }  // namespace
 
 StatusOr<HloInstruction*> OptimizeDotOfConcat(
-    AlgebraicSimplifierVisitor* visitor, HloInstruction* dot) {
+    PoplarAlgebraicSimplifierVisitor* visitor, HloInstruction* dot) {
   const DotDimensionNumbers& dnums = dot->dot_dimension_numbers();
   if (dnums.lhs_contracting_dimensions_size() != 1 ||
       dnums.lhs_batch_dimensions_size() != 0 ||
@@ -82,7 +82,7 @@ StatusOr<HloInstruction*> OptimizeDotOfConcat(
 }
 
 StatusOr<HloInstruction*> OptimizeDotOfConcatHelper(
-    AlgebraicSimplifierVisitor* visitor, const HloInstruction& dot,
+    PoplarAlgebraicSimplifierVisitor* visitor, const HloInstruction& dot,
     HloInstruction* lhs, int64_t lhs_contracting_dim, HloInstruction* rhs,
     int64_t rhs_contracting_dim, bool swapped) {
   bool can_optimize = lhs->opcode() == HloOpcode::kConcatenate &&
@@ -205,7 +205,7 @@ StatusOr<HloInstruction*> OptimizeDotOfConcatHelper(
 }
 
 StatusOr<HloInstruction*> OptimizeDotOfGather(
-    AlgebraicSimplifierVisitor* visitor, HloInstruction* dot) {
+    PoplarAlgebraicSimplifierVisitor* visitor, HloInstruction* dot) {
   const DotDimensionNumbers& dnums = dot->dot_dimension_numbers();
   if (dnums.lhs_contracting_dimensions_size() != 1 ||
       dnums.rhs_contracting_dimensions_size() != 1 ||
@@ -347,7 +347,7 @@ StatusOr<HloInstruction*> OptimizeDotOfGather(
 // dimensions on both sides of the dot in the same way, the result of the
 // dot is not affected.
 StatusOr<HloInstruction*> OptimizeDotOfReorderContractingDims(
-    AlgebraicSimplifierVisitor* visitor, HloInstruction* dot) {
+    PoplarAlgebraicSimplifierVisitor* visitor, HloInstruction* dot) {
   // Canonicalize dot(<constant>, rhs) to dot(rhs, <constant>) to make the
   // remainder of this function easier.
   auto dnums = dot->dot_dimension_numbers();
@@ -591,7 +591,7 @@ PrimitiveType DeterminePrimitiveTypeForDotProduct(HloInstruction* dot) {
 }  // namespace
 
 StatusOr<HloInstruction*> OptimizeDotStrengthReduction(
-    AlgebraicSimplifierVisitor* visitor, HloInstruction* dot) {
+    PoplarAlgebraicSimplifierVisitor* visitor, HloInstruction* dot) {
   if (!visitor->config_.enable_dot_strength()) {
     return nullptr;
   }

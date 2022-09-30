@@ -240,7 +240,7 @@ StatusOr<absl::flat_hash_set<HloComputation*>> GetAllComputationsCalledBy(
     // Get the context.
     const CallGraphNode& node = call_graph->GetNode(comp);
     // We do not consider sharding in parallel context or fusions.
-    if (node.context() == CallContext::kParallel ||
+    if (node.context() == CallContext::kEmbedded ||
         comp->IsFusionComputation()) {
       continue;
     }

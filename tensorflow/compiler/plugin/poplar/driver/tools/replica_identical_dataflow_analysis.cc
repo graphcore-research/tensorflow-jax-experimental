@@ -48,7 +48,7 @@ bool IsVisitable(CallGraph& call_graph, HloComputation* computation) {
   const auto called = !call_graph.GetComputationCallers(computation).empty();
   if (called) {
     const auto& node = call_graph.GetNode(computation);
-    return node.context() != CallContext::kParallel;
+    return node.context() != CallContext::kEmbedded;
   }
 
   return false;

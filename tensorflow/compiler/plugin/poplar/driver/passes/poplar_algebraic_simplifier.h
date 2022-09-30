@@ -54,34 +54,34 @@ class PoplarAlgebraicSimplifier : public HloModulePass {
   const poplarplugin::IpuOptions_IpuAlgebraicSimplifierConfig config_;
 };
 
-// AlgebraicSimplifierVisitor traverses the HLO computation and reduces certain
-// algebraic expressions to simplified forms. Note: This only supports
+// PoplarAlgebraicSimplifierVisitor traverses the HLO computation and reduces
+// certain algebraic expressions to simplified forms. Note: This only supports
 // simplifications that simply look at the operands of an instruction. For the
 // more general case a worklist based approach would be needed.
-class AlgebraicSimplifierVisitor : public DfsHloRewriteVisitor {
+class PoplarAlgebraicSimplifierVisitor : public DfsHloRewriteVisitor {
  public:
-  explicit AlgebraicSimplifierVisitor(
+  explicit PoplarAlgebraicSimplifierVisitor(
       PoplarAlgebraicSimplifier* simplifier,
       poplarplugin::IpuOptions_IpuAlgebraicSimplifierConfig config)
       : simplifier_(simplifier), config_(std::move(config)) {}
 
   friend StatusOr<HloInstruction*>
   xla::poplarplugin::algebraic_simplifier::dot::OptimizeDotOfConcatHelper(
-      AlgebraicSimplifierVisitor* visitor, const HloInstruction& dot,
+      PoplarAlgebraicSimplifierVisitor* visitor, const HloInstruction& dot,
       HloInstruction* lhs, int64_t lhs_contracting_dim, HloInstruction* rhs,
       int64_t rhs_contracting_dim, bool swapped);
 
   friend StatusOr<HloInstruction*>
   xla::poplarplugin::algebraic_simplifier::dot::OptimizeDotOfGather(
-      AlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
+      PoplarAlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
 
   friend StatusOr<HloInstruction*> xla::poplarplugin::algebraic_simplifier::
       dot::OptimizeDotOfReorderContractingDims(
-          AlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
+          PoplarAlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
 
   friend StatusOr<HloInstruction*>
   xla::poplarplugin::algebraic_simplifier::dot::OptimizeDotStrengthReduction(
-      AlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
+      PoplarAlgebraicSimplifierVisitor* visitor, HloInstruction* dot);
 
   Status HandleAdd(HloInstruction* add) override;
 
@@ -229,7 +229,7 @@ class AlgebraicSimplifierVisitor : public DfsHloRewriteVisitor {
   // Tries to replace concatenate of same slices to broadcast.
   bool TrySimplifyConcatenateOfSameSlices(HloInstruction* concatenate);
 
-  // Current HloComputation instance the AlgebraicSimplifierVisitor is
+  // Current HloComputation instance the PoplarAlgebraicSimplifierVisitor is
   // traversing.
   HloComputation* computation_;
 

@@ -1339,7 +1339,7 @@ static StatusOr<HloInstruction*> TryMergeInductionVariables(
 // Take in a set of used indices, add any user of this instruction
 // that is a GTE to the set. Set used indices to nullopt to signify
 // to later functions that optimisation can't be performed.
-void AddAllGTEUsers(absl::optional<absl::flat_hash_set<int64>>& used_indices,
+void AddAllGTEUsers(absl::optional<absl::flat_hash_set<int64_t>>& used_indices,
                     HloInstruction* instruction) {
   if (!used_indices) {
     // Already hit an instruction can't deal with so no point
@@ -1354,7 +1354,7 @@ void AddAllGTEUsers(absl::optional<absl::flat_hash_set<int64>>& used_indices,
     used_indices = absl::nullopt;
     return;
   }
-  absl::flat_hash_set<int64> result;
+  absl::flat_hash_set<int64_t> result;
   for (HloInstruction* user : instruction->users()) {
     if (user->opcode() != HloOpcode::kGetTupleElement) {
       // If something absorbs all outputs, bail out. Again
@@ -1393,8 +1393,8 @@ static void AddInstructionsWithSideEffects(
 
 static void AddUsedIndicesInstructions(
     absl::flat_hash_set<HloInstruction*>& contributes_to_output,
-    const absl::flat_hash_set<int64>& used_indices, HloInstruction* root) {
-  for (int64 i : used_indices) {
+    const absl::flat_hash_set<int64_t>& used_indices, HloInstruction* root) {
+  for (int64_t i : used_indices) {
     contributes_to_output.emplace(root->mutable_operand(i));
   }
 }
@@ -1404,7 +1404,7 @@ static void AddUsedIndicesInstructions(
 // into the used_indices
 static void IterateBackwardsThroughUsedOutputs(
     absl::flat_hash_set<HloInstruction*> contributes_to_output,
-    absl::optional<absl::flat_hash_set<int64>>& used_indices,
+    absl::optional<absl::flat_hash_set<int64_t>>& used_indices,
     HloComputation* body) {
   std::vector<HloInstruction*> to_visit;
   to_visit.reserve(contributes_to_output.size());
@@ -1463,7 +1463,7 @@ static bool AnyUsersNotGTE(HloInstruction* param) {
 // IterateBackwardsThroughUsedOutputs to find any other indices
 // used inside the while that contribute to the output
 static void AddAllUserIndicesFromBody(
-    absl::optional<absl::flat_hash_set<int64>>& used_indices,
+    absl::optional<absl::flat_hash_set<int64_t>>& used_indices,
     HloComputation* body) {
   HloInstruction* root = body->root_instruction();
   if (AnyUsersNotGTE(body->parameter_instruction(0))) {
@@ -1506,7 +1506,7 @@ static bool LoopInExpectedFormForOutputElimination(HloInstruction* while_op) {
 // multiple exist put in any (in this case we put the last found
 // but it doesn't matter)
 static std::vector<absl::optional<HloInstruction*>> FindGTEInputs(
-    HloComputation* body, int64 num_inputs) {
+    HloComputation* body, int64_t num_inputs) {
   std::vector<absl::optional<HloInstruction*>> result(num_inputs,
                                                       absl::nullopt);
   HloInstruction* param = body->parameter_instruction(0);
@@ -1525,14 +1525,14 @@ static std::vector<absl::optional<HloInstruction*>> FindGTEInputs(
 // to ensure that remove all uses of GTE's that don't affect the
 // output first and then call RemoveDeadTupleIndices.
 static StatusOr<bool> EliminateUnusedInstructions(
-    HloInstruction* while_op, absl::flat_hash_set<int64> used_indices) {
-  int64 num_outputs = ShapeUtil::TupleElementCount(while_op->shape());
+    HloInstruction* while_op, absl::flat_hash_set<int64_t> used_indices) {
+  int64_t num_outputs = ShapeUtil::TupleElementCount(while_op->shape());
   HloComputation* body = while_op->while_body();
   auto gte_for_index = FindGTEInputs(body, num_outputs);
   std::vector<HloInstruction*> dead_roots;
   HloInstruction* root = body->root_instruction();
   dead_roots.reserve(num_outputs - used_indices.size());
-  for (int64 i = 0; i < num_outputs; ++i) {
+  for (int64_t i = 0; i < num_outputs; ++i) {
     if (used_indices.contains(i)) {
       continue;
     }
@@ -1588,12 +1588,12 @@ static StatusOr<bool> TryRemoveDeadOutputs(HloInstruction* while_op) {
   if (!LoopInExpectedFormForOutputElimination(while_op)) {
     return false;
   }
-  absl::optional<absl::flat_hash_set<int64>> used_indices =
-      absl::flat_hash_set<int64>();
+  absl::optional<absl::flat_hash_set<int64_t>> used_indices =
+      absl::flat_hash_set<int64_t>();
   AddAllGTEUsers(used_indices, while_op);
   AddAllGTEUsers(used_indices,
                  while_op->while_condition()->parameter_instruction(0));
-  const int64 tuple_size = ShapeUtil::TupleElementCount(while_op->shape());
+  const int64_t tuple_size = ShapeUtil::TupleElementCount(while_op->shape());
   if (!used_indices || used_indices->size() == tuple_size) {
     // This condidition is duplicated later but as iterating through the
     // body is the most expensive bit it's worth checking if

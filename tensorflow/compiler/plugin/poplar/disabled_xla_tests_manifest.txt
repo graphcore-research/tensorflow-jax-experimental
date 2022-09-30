@@ -159,6 +159,7 @@ ScalarComputationsTest.CastS64ToF32 POPLAR
 ConvertTest.ConvertR1S64ToR1F32 POPLAR
 ConvertTest.ConvertR1F32ToR1S64 POPLAR
 HloTestBase.ReduceWindowS64 POPLAR
+HloTestBase.ReduceWindowS64Support POPLAR
 MatrixTest.SetMatrixDiagonal_S64 POPLAR
 
 ScalarComputationsTest.AddTwoScalarsU64      POPLAR // U64
@@ -218,6 +219,7 @@ ArrayElementwiseOpTest.MulTwoConstantZeroElementC64s POPLAR
 ArrayElementwiseOpTest.CompareEqC64s POPLAR
 ArrayElementwiseOpTest.CompareEqZeroElementC64s POPLAR
 ArrayElementwiseOpTest.CompareNeC64s POPLAR
+ArrayElementwiseOpTest.Atan2C64s POPLAR
 ConvolutionHloTest.ConvolveC64Forward POPLAR
 TupleTest.ComplexTuples POPLAR
 DotOperationTest.MatrixVectorC64 POPLAR
@@ -399,6 +401,7 @@ ArrayElementwiseOpTest.CompareLeF32s POPLAR // NaNs
 ArrayElementwiseOpTest.CompareLtF32s POPLAR // NaNs
 ArrayElementwiseOpTest.CompareNeF32s POPLAR // NaNs
 ArrayElementwiseOpTest.PowF32s POPLAR // NaNs
+ArrayElementwiseOpTest.LogOfPowerF32 POPLAR // NaNs
 
 SlicingTest.TorchGatherDense POPLAR // requires bitwise reduce OR
 SlicingTest.EmptyIndexSelectNonZero POPLAR // Unusual output size
@@ -426,3 +429,8 @@ LocalClientExecuteTest.CompilePartitionedExecutable POPLAR
 
 ArrayElementwiseOpTest.IntPow POPLAR // No int32 power operator in Poplar. (T53427)
 ArrayElementwiseOpTest.IntPowLarge POPLAR
+
+BitcastConvertHloTest.S32to4S8 POPLAR // No bitcast for type with different data size. (T64432)
+BitcastConvertHloTest.FourS8toS32 POPLAR
+BitcastConvertHloTest.F32to2F16 POPLAR
+BitcastConvertHloTest.TwoF16toF32 POPLAR

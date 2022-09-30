@@ -80,7 +80,8 @@ constexpr int64_t very_small_gather_size = 4;
 
 }  // namespace
 
-HloInstruction* AlgebraicSimplifierVisitor::PreserveFrontendAttributesIfNeeded(
+HloInstruction*
+PoplarAlgebraicSimplifierVisitor::PreserveFrontendAttributesIfNeeded(
     HloInstruction* new_inst, const HloInstruction* old_inst) {
   if (new_inst->frontend_attributes().map().empty() &&
       !old_inst->frontend_attributes().map().empty()) {
@@ -90,7 +91,7 @@ HloInstruction* AlgebraicSimplifierVisitor::PreserveFrontendAttributesIfNeeded(
 }
 
 StatusOr<HloInstruction*>
-AlgebraicSimplifierVisitor::PreserveFrontendAttributesIfNeeded(
+PoplarAlgebraicSimplifierVisitor::PreserveFrontendAttributesIfNeeded(
     StatusOr<HloInstruction*> new_inst, const HloInstruction* old_inst) {
   if (new_inst.ok()) {
     return PreserveFrontendAttributesIfNeeded(new_inst.ValueOrDie(), old_inst);
@@ -100,7 +101,7 @@ AlgebraicSimplifierVisitor::PreserveFrontendAttributesIfNeeded(
 
 // Converts to primitive type if the input hlo is not that type, otherwise
 // returns the original hlo.
-HloInstruction* AlgebraicSimplifierVisitor::AsType(
+HloInstruction* PoplarAlgebraicSimplifierVisitor::AsType(
     HloInstruction* hlo, const PrimitiveType element_type) {
   if (hlo->shape().element_type() == element_type) {
     return hlo;
@@ -116,7 +117,7 @@ HloInstruction* AlgebraicSimplifierVisitor::AsType(
 }
 
 // Helper method to perform and add reduction on a list of dimensions.
-HloInstruction* AlgebraicSimplifierVisitor::AddReduce(
+HloInstruction* PoplarAlgebraicSimplifierVisitor::AddReduce(
     HloInstruction* hlo, absl::Span<const int64_t> dims, PrimitiveType type) {
   HloInstruction* zero =
       computation_->AddInstruction(simplifier_->CreateConstantWithLayoutUpdated(
@@ -130,7 +131,8 @@ HloInstruction* AlgebraicSimplifierVisitor::AddReduce(
       shape, hlo, zero, dims, AddReduce_computation));
 }
 
-HloComputation* AlgebraicSimplifierVisitor::GetOrCreateScalarAddComputation(
+HloComputation*
+PoplarAlgebraicSimplifierVisitor::GetOrCreateScalarAddComputation(
     PrimitiveType type) {
   if (scalar_add_computations_.find(type) != scalar_add_computations_.end()) {
     return scalar_add_computations_.at(type);
@@ -152,20 +154,20 @@ HloComputation* AlgebraicSimplifierVisitor::GetOrCreateScalarAddComputation(
   return scalar_add_computation;
 }
 
-void AlgebraicSimplifierVisitor::ResetState(HloComputation* computation) {
+void PoplarAlgebraicSimplifierVisitor::ResetState(HloComputation* computation) {
   changed_ = false;
   ResetVisitStates();
   computation_ = computation;
 }
 
-bool AlgebraicSimplifierVisitor::Run(HloComputation* computation,
-                                     PoplarAlgebraicSimplifier* simplifier) {
+bool PoplarAlgebraicSimplifierVisitor::Run(
+    HloComputation* computation, PoplarAlgebraicSimplifier* simplifier) {
   ResetState(computation);
   TF_CHECK_OK(computation->Accept(this));
   return changed_ || changed();
 }
 
-bool AlgebraicSimplifierVisitor::ReplaceInstructionIfSameShape(
+bool PoplarAlgebraicSimplifierVisitor::ReplaceInstructionIfSameShape(
     HloInstruction* old_instruction, HloInstruction* new_instruction) {
   if (!ShapeUtil::Compatible(old_instruction->shape(),
                              new_instruction->shape())) {
@@ -175,7 +177,7 @@ bool AlgebraicSimplifierVisitor::ReplaceInstructionIfSameShape(
   return true;
 }
 
-Status AlgebraicSimplifierVisitor::HandleAdd(HloInstruction* add) {
+Status PoplarAlgebraicSimplifierVisitor::HandleAdd(HloInstruction* add) {
   HloInstruction *lhs, *rhs;
   CHECK(Match(add, m::Add(m::Op(&lhs), m::Op(&rhs))));
 
@@ -324,7 +326,8 @@ Status AlgebraicSimplifierVisitor::HandleAdd(HloInstruction* add) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleAnd(HloInstruction* logical_and) {
+Status PoplarAlgebraicSimplifierVisitor::HandleAnd(
+    HloInstruction* logical_and) {
   HloInstruction *lhs, *rhs;
   CHECK(Match(logical_and, m::And(m::Op(&lhs), m::Op(&rhs))));
   // Simplify logical and
@@ -371,7 +374,8 @@ Status AlgebraicSimplifierVisitor::HandleAnd(HloInstruction* logical_and) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleBitcast(HloInstruction* bitcast) {
+Status PoplarAlgebraicSimplifierVisitor::HandleBitcast(
+    HloInstruction* bitcast) {
   // If a bitcast feeds a bitcast, make it a single bitcast.
   HloInstruction* op;
   if (Match(bitcast, m::Bitcast(m::Bitcast(m::Op(&op))))) {
@@ -384,7 +388,7 @@ Status AlgebraicSimplifierVisitor::HandleBitcast(HloInstruction* bitcast) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleBitcastConvert(
+Status PoplarAlgebraicSimplifierVisitor::HandleBitcastConvert(
     HloInstruction* bitcast) {
   // If a bitcast convert feeds a bitcast convert, make it a single bitcast
   // convert.
@@ -398,7 +402,7 @@ Status AlgebraicSimplifierVisitor::HandleBitcastConvert(
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleCopy(HloInstruction* copy) {
+Status PoplarAlgebraicSimplifierVisitor::HandleCopy(HloInstruction* copy) {
   // If a copy feeds a copy, make it a single copy.
   HloInstruction* op;
   if (Match(copy, m::Copy(m::Copy(m::Op(&op))))) {
@@ -439,7 +443,7 @@ Status AlgebraicSimplifierVisitor::HandleCopy(HloInstruction* copy) {
 //     +---------------------------+
 //     |        Concatenate        |
 //     +---------------------------+
-bool AlgebraicSimplifierVisitor::TrySimplifyConcatenateOfSameSlices(
+bool PoplarAlgebraicSimplifierVisitor::TrySimplifyConcatenateOfSameSlices(
     HloInstruction* concatenate) {
   absl::Span<HloInstruction* const> operands(concatenate->operands());
   int64_t concatenate_dimension = concatenate->concatenate_dimension();
@@ -538,7 +542,7 @@ bool AlgebraicSimplifierVisitor::TrySimplifyConcatenateOfSameSlices(
   return true;
 }
 
-Status AlgebraicSimplifierVisitor::HandleConcatenate(
+Status PoplarAlgebraicSimplifierVisitor::HandleConcatenate(
     HloInstruction* concatenate) {
   absl::Span<HloInstruction* const> operands(concatenate->operands());
   if (operands.size() == 1) {
@@ -727,7 +731,8 @@ static HloInstruction* BuildTupleConstant(
   }
 }
 
-Status AlgebraicSimplifierVisitor::HandleConstant(HloInstruction* constant) {
+Status PoplarAlgebraicSimplifierVisitor::HandleConstant(
+    HloInstruction* constant) {
   // Tuple constants aren't directly supported by any backend. Expand them into
   // explicit Tuple instructions.
   if (constant->shape().IsTuple()) {
@@ -779,7 +784,7 @@ Status AlgebraicSimplifierVisitor::HandleConstant(HloInstruction* constant) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleSubtract(HloInstruction* sub) {
+Status PoplarAlgebraicSimplifierVisitor::HandleSubtract(HloInstruction* sub) {
   HloInstruction *lhs, *rhs;
   CHECK(Match(sub, m::Subtract(m::Op(&lhs), m::Op(&rhs))));
   // A - 0 => A
@@ -948,7 +953,7 @@ std::unique_ptr<HloInstruction> TryDivideToShift(
 }
 }  // namespace
 
-Status AlgebraicSimplifierVisitor::HandleDivide(HloInstruction* divide) {
+Status PoplarAlgebraicSimplifierVisitor::HandleDivide(HloInstruction* divide) {
   HloInstruction *a, *b, *c, *d;
   CHECK(Match(divide, m::Divide(m::Op(&a), m::Op(&b))));
   // A/1 => A
@@ -1207,7 +1212,8 @@ Status AlgebraicSimplifierVisitor::HandleDivide(HloInstruction* divide) {
   return Status::OK();
 }
 
-StatusOr<bool> AlgebraicSimplifierVisitor::RemoveDegenerateDimensionFromDot(
+StatusOr<bool>
+PoplarAlgebraicSimplifierVisitor::RemoveDegenerateDimensionFromDot(
     HloInstruction* dot) {
   const Shape& lhs_shape = dot->operand(0)->shape();
   int64_t num_degenerate_lhs_dims = 0;
@@ -1292,7 +1298,7 @@ StatusOr<bool> AlgebraicSimplifierVisitor::RemoveDegenerateDimensionFromDot(
   return true;
 }
 
-Status AlgebraicSimplifierVisitor::HandleDot(HloInstruction* dot) {
+Status PoplarAlgebraicSimplifierVisitor::HandleDot(HloInstruction* dot) {
   CHECK(computation_ == dot->parent());
   HloInstruction *lhs, *rhs;
 
@@ -1405,7 +1411,7 @@ Status AlgebraicSimplifierVisitor::HandleDot(HloInstruction* dot) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleGather(HloInstruction* gather) {
+Status PoplarAlgebraicSimplifierVisitor::HandleGather(HloInstruction* gather) {
   const Shape& operand_shape = gather->operand(0)->shape();
   // If the operand of a gather is very small, it is easier to fuse a
   // sequence of selects.
@@ -1525,7 +1531,8 @@ StatusOr<std::unique_ptr<HloInstruction>> MinMaxToClamp(
 }
 }  // namespace
 
-Status AlgebraicSimplifierVisitor::HandleMaximum(HloInstruction* maximum) {
+Status PoplarAlgebraicSimplifierVisitor::HandleMaximum(
+    HloInstruction* maximum) {
   HloInstruction *lhs, *rhs;
   CHECK(Match(maximum, m::Maximum(m::Op(&lhs), m::Op(&rhs))));
 
@@ -1565,7 +1572,8 @@ Status AlgebraicSimplifierVisitor::HandleMaximum(HloInstruction* maximum) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleMinimum(HloInstruction* minimum) {
+Status PoplarAlgebraicSimplifierVisitor::HandleMinimum(
+    HloInstruction* minimum) {
   HloInstruction *lhs, *rhs;
   CHECK(Match(minimum, m::Minimum(m::Op(&lhs), m::Op(&rhs))));
 
@@ -1590,7 +1598,7 @@ Status AlgebraicSimplifierVisitor::HandleMinimum(HloInstruction* minimum) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleClamp(HloInstruction* clamp) {
+Status PoplarAlgebraicSimplifierVisitor::HandleClamp(HloInstruction* clamp) {
   HloInstruction* clamp_lower_bound;
   HloInstruction* clamp_upper_bound;
   HloInstruction* to_clamp;
@@ -1627,7 +1635,8 @@ Status AlgebraicSimplifierVisitor::HandleClamp(HloInstruction* clamp) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleMultiply(HloInstruction* multiply) {
+Status PoplarAlgebraicSimplifierVisitor::HandleMultiply(
+    HloInstruction* multiply) {
   HloInstruction *lhs, *rhs;
   CHECK(Match(multiply, m::Multiply(m::Op(&lhs), m::Op(&rhs))));
   // A*1 => A
@@ -1716,7 +1725,7 @@ Status AlgebraicSimplifierVisitor::HandleMultiply(HloInstruction* multiply) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleNegate(HloInstruction* negate) {
+Status PoplarAlgebraicSimplifierVisitor::HandleNegate(HloInstruction* negate) {
   // negate(negate(x)) => x
   HloInstruction* x;
   if (Match(negate, m::Negate(m::Negate(m::Op(&x)))) &&
@@ -1726,7 +1735,8 @@ Status AlgebraicSimplifierVisitor::HandleNegate(HloInstruction* negate) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleNot(HloInstruction* logical_not) {
+Status PoplarAlgebraicSimplifierVisitor::HandleNot(
+    HloInstruction* logical_not) {
   // not(not(x)) => x
   HloInstruction* x;
   if (Match(logical_not, m::Not(m::Not(m::Op(&x)))) &&
@@ -1736,7 +1746,7 @@ Status AlgebraicSimplifierVisitor::HandleNot(HloInstruction* logical_not) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleOr(HloInstruction* logical_or) {
+Status PoplarAlgebraicSimplifierVisitor::HandleOr(HloInstruction* logical_or) {
   HloInstruction *lhs, *rhs;
   CHECK(Match(logical_or, m::Or(m::Op(&lhs), m::Op(&rhs))));
 
@@ -1783,7 +1793,7 @@ Status AlgebraicSimplifierVisitor::HandleOr(HloInstruction* logical_or) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleLog(HloInstruction* log) {
+Status PoplarAlgebraicSimplifierVisitor::HandleLog(HloInstruction* log) {
   // ln(exp(A)) => A
   VLOG(10) << "trying transform [ln(exp(A)) => A]: " << log->ToString();
   HloInstruction *a, *b;
@@ -1832,7 +1842,7 @@ Status AlgebraicSimplifierVisitor::HandleLog(HloInstruction* log) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleGetTupleElement(
+Status PoplarAlgebraicSimplifierVisitor::HandleGetTupleElement(
     HloInstruction* get_tuple_element) {
   auto operand = get_tuple_element->mutable_operand(0);
   if (operand->opcode() == HloOpcode::kTuple) {
@@ -1899,7 +1909,8 @@ bool OutputIsSubsetOfOperandElements(HloInstruction* instruction,
 
 }  // namespace
 
-Status AlgebraicSimplifierVisitor::HandleBroadcast(HloInstruction* broadcast) {
+Status PoplarAlgebraicSimplifierVisitor::HandleBroadcast(
+    HloInstruction* broadcast) {
   HloInstruction* operand;
   CHECK(Match(broadcast, m::Broadcast(m::Op(&operand))));
   auto dims = broadcast->dimensions();
@@ -2033,7 +2044,8 @@ StatusOr<ComparisonDirection> inverse_comparison_direction(
 }
 }  // namespace
 
-Status AlgebraicSimplifierVisitor::HandleCompare(HloInstruction* compare) {
+Status PoplarAlgebraicSimplifierVisitor::HandleCompare(
+    HloInstruction* compare) {
   HloInstruction* lhs;
   HloInstruction* rhs;
   CHECK(Match(compare, m::Compare(m::Op(&lhs), m::Op(&rhs))));
@@ -2170,7 +2182,8 @@ Status AlgebraicSimplifierVisitor::HandleCompare(HloInstruction* compare) {
 // A conversion to the same element type as the operand is a nop and can be
 // removed.  A conversion of a constant can be simplified by making a new
 // constant.
-Status AlgebraicSimplifierVisitor::HandleConvert(HloInstruction* convert) {
+Status PoplarAlgebraicSimplifierVisitor::HandleConvert(
+    HloInstruction* convert) {
   PrimitiveType src_type = convert->operand(0)->shape().element_type();
   PrimitiveType dest_type = convert->shape().element_type();
   if (src_type == dest_type) {
@@ -2186,7 +2199,8 @@ Status AlgebraicSimplifierVisitor::HandleConvert(HloInstruction* convert) {
 }
 
 // Complex(Real(c), Imag(c)) -> c
-Status AlgebraicSimplifierVisitor::HandleComplex(HloInstruction* complex) {
+Status PoplarAlgebraicSimplifierVisitor::HandleComplex(
+    HloInstruction* complex) {
   HloInstruction *c0, *c1;
   if (Match(complex, m::Complex(m::Real(m::Op(&c0)), m::Imag(m::Op(&c1)))) &&
       c0 == c1) {
@@ -2196,7 +2210,7 @@ Status AlgebraicSimplifierVisitor::HandleComplex(HloInstruction* complex) {
 }
 
 // Real(Complex(r, i)) -> r
-Status AlgebraicSimplifierVisitor::HandleReal(HloInstruction* real) {
+Status PoplarAlgebraicSimplifierVisitor::HandleReal(HloInstruction* real) {
   HloInstruction* op;
   if (Match(real, m::Real(m::Complex(m::Op(&op), m::Op())))) {
     return ReplaceInstruction(real, op);
@@ -2205,7 +2219,7 @@ Status AlgebraicSimplifierVisitor::HandleReal(HloInstruction* real) {
 }
 
 // Imag(Complex(r, i)) -> i
-Status AlgebraicSimplifierVisitor::HandleImag(HloInstruction* imag) {
+Status PoplarAlgebraicSimplifierVisitor::HandleImag(HloInstruction* imag) {
   HloInstruction* op;
   if (Match(imag, m::Imag(m::Complex(m::Op(), m::Op(&op))))) {
     return ReplaceInstruction(imag, op);
@@ -2213,7 +2227,8 @@ Status AlgebraicSimplifierVisitor::HandleImag(HloInstruction* imag) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleIota(HloInstruction* instruction) {
+Status PoplarAlgebraicSimplifierVisitor::HandleIota(
+    HloInstruction* instruction) {
   // iota -> zero if the iota dimension never produces an element other than
   // zero.
   auto* iota = Cast<HloIotaInstruction>(instruction);
@@ -2227,7 +2242,7 @@ Status AlgebraicSimplifierVisitor::HandleIota(HloInstruction* instruction) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandlePad(HloInstruction* pad) {
+Status PoplarAlgebraicSimplifierVisitor::HandlePad(HloInstruction* pad) {
   if (ShapeUtil::IsZeroElementArray(pad->operand(0)->shape())) {
     return ReplaceWithNewInstruction(
         pad, HloInstruction::CreateBroadcast(pad->shape(),
@@ -2340,7 +2355,7 @@ Status AlgebraicSimplifierVisitor::HandlePad(HloInstruction* pad) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandlePower(HloInstruction* power) {
+Status PoplarAlgebraicSimplifierVisitor::HandlePower(HloInstruction* power) {
   VLOG(10) << "trying transform [pow(A, 0) => 1]: " << power->ToString();
   HloInstruction *lhs, *rhs;
   CHECK(Match(power, m::Power(m::Op(&lhs), m::Op(&rhs))));
@@ -2502,9 +2517,9 @@ bool IsHloInstructionBroadcastWithScalarOperand(
 }
 }  // namespace
 
-StatusOr<bool>
-AlgebraicSimplifierVisitor::TryToSinkBroadcastAfterOpWithUniqueNonScalarOperand(
-    HloInstruction* broadcast) {
+StatusOr<bool> PoplarAlgebraicSimplifierVisitor::
+    TryToSinkBroadcastAfterOpWithUniqueNonScalarOperand(
+        HloInstruction* broadcast) {
   TF_RET_CHECK(broadcast->opcode() == HloOpcode::kBroadcast);
   bool changed = false;
   if (ShapeUtil::IsScalar(broadcast->shape())) {
@@ -2687,7 +2702,8 @@ std::unique_ptr<HloInstruction> TryRemainderToAnd(
 }
 }  // namespace
 
-Status AlgebraicSimplifierVisitor::HandleRemainder(HloInstruction* remainder) {
+Status PoplarAlgebraicSimplifierVisitor::HandleRemainder(
+    HloInstruction* remainder) {
   HloInstruction *a, *b;
   CHECK(Match(remainder, m::Remainder(m::Op(&a), m::Op(&b))));
 
@@ -2812,7 +2828,8 @@ Status AlgebraicSimplifierVisitor::HandleRemainder(HloInstruction* remainder) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleReshape(HloInstruction* reshape) {
+Status PoplarAlgebraicSimplifierVisitor::HandleReshape(
+    HloInstruction* reshape) {
   auto operand = reshape->mutable_operand(0);
 
   // Reshape directly to empty constant if the shape contains zero-element
@@ -2912,7 +2929,8 @@ Status AlgebraicSimplifierVisitor::HandleReshape(HloInstruction* reshape) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleReverse(HloInstruction* reverse) {
+Status PoplarAlgebraicSimplifierVisitor::HandleReverse(
+    HloInstruction* reverse) {
   // When all the dimensions to reverse are trivial (i.e. the bound is 1),
   // there is nothing to be done.
   auto dim_is_one = [&](int64_t i) -> bool {
@@ -2924,7 +2942,7 @@ Status AlgebraicSimplifierVisitor::HandleReverse(HloInstruction* reverse) {
   return Status::OK();
 }
 
-StatusOr<bool> AlgebraicSimplifierVisitor::TrySimplifyScalarSlice(
+StatusOr<bool> PoplarAlgebraicSimplifierVisitor::TrySimplifyScalarSlice(
     HloInstruction* slice) {
   // Only try to do this for effective scalars. We could do the same for slicing
   // out larger pieces of padding (replacing with a broadcast of the padding
@@ -3023,7 +3041,7 @@ StatusOr<bool> AlgebraicSimplifierVisitor::TrySimplifyScalarSlice(
   return false;
 }
 
-StatusOr<bool> AlgebraicSimplifierVisitor::TryToReorderSliceAndReshape(
+StatusOr<bool> PoplarAlgebraicSimplifierVisitor::TryToReorderSliceAndReshape(
     HloInstruction* slice) {
   CHECK_EQ(slice->opcode(), HloOpcode::kSlice);
   if (!pp::algebraic_simplifier::util::IsUnstridedSlice(slice)) {
@@ -3079,7 +3097,7 @@ StatusOr<bool> AlgebraicSimplifierVisitor::TryToReorderSliceAndReshape(
   return false;
 }
 
-Status AlgebraicSimplifierVisitor::HandleSlice(HloInstruction* slice) {
+Status PoplarAlgebraicSimplifierVisitor::HandleSlice(HloInstruction* slice) {
   // Delete no-op slices, i.e. where shape = operand shape.
   if (ReplaceInstructionIfSameShape(slice, slice->mutable_operand(0))) {
     return Status::OK();
@@ -3166,7 +3184,7 @@ Status AlgebraicSimplifierVisitor::HandleSlice(HloInstruction* slice) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleDynamicSlice(
+Status PoplarAlgebraicSimplifierVisitor::HandleDynamicSlice(
     HloInstruction* dynamic_slice) {
   auto operand = dynamic_slice->mutable_operand(0);
   if (ShapeUtil::IsScalar(dynamic_slice->shape())) {
@@ -3224,7 +3242,7 @@ Status AlgebraicSimplifierVisitor::HandleDynamicSlice(
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleDynamicUpdateSlice(
+Status PoplarAlgebraicSimplifierVisitor::HandleDynamicUpdateSlice(
     HloInstruction* dynamic_update_slice) {
   // Rewriting DynamicUpdateSlice when it matches
   // dynamic_update_slice(broadcast(constant),data,constant_index0,...)
@@ -3315,7 +3333,8 @@ Status AlgebraicSimplifierVisitor::HandleDynamicUpdateSlice(
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleAllReduce(HloInstruction* all_reduce) {
+Status PoplarAlgebraicSimplifierVisitor::HandleAllReduce(
+    HloInstruction* all_reduce) {
   /// Replace all-reduce(replication-normalise(all-reduce(arg))) with
   /// all-reduce(arg)
   if (all_reduce->operand_count() != 1 ||
@@ -3337,7 +3356,7 @@ Status AlgebraicSimplifierVisitor::HandleAllReduce(HloInstruction* all_reduce) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleReduce(HloInstruction* hlo) {
+Status PoplarAlgebraicSimplifierVisitor::HandleReduce(HloInstruction* hlo) {
   HloReduceInstruction* reduce = Cast<HloReduceInstruction>(hlo);
   bool multi_output_reduce = reduce->shape().IsTuple();
 
@@ -3684,7 +3703,8 @@ Status AlgebraicSimplifierVisitor::HandleReduce(HloInstruction* hlo) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleReduceWindow(HloInstruction* hlo) {
+Status PoplarAlgebraicSimplifierVisitor::HandleReduceWindow(
+    HloInstruction* hlo) {
   auto* reduce_window = Cast<HloReduceWindowInstruction>(hlo);
   const bool multi_output_reduce_window = reduce_window->shape().IsTuple();
   auto inputs = reduce_window->inputs();
@@ -3998,7 +4018,7 @@ StatusOr<std::unique_ptr<HloInstruction>> MergeSelectOr(
 
 }  // anonymous namespace.
 
-Status AlgebraicSimplifierVisitor::HandleSelect(HloInstruction* select) {
+Status PoplarAlgebraicSimplifierVisitor::HandleSelect(HloInstruction* select) {
   // select(x, y, y) -> y.
   if (select->operand(1) == select->operand(2)) {
     return ReplaceInstruction(select, select->mutable_operand(1));
@@ -4023,7 +4043,8 @@ Status AlgebraicSimplifierVisitor::HandleSelect(HloInstruction* select) {
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleScatter(HloInstruction* scatter) {
+Status PoplarAlgebraicSimplifierVisitor::HandleScatter(
+    HloInstruction* scatter) {
   if (ShapeUtil::IsZeroElementArray(scatter->operand(2)->shape()) &&
       ReplaceInstructionIfSameShape(scatter, scatter->mutable_operand(0))) {
     return Status::OK();
@@ -4039,7 +4060,7 @@ Status AlgebraicSimplifierVisitor::HandleScatter(HloInstruction* scatter) {
   }
   return Status::OK();
 }
-Status AlgebraicSimplifierVisitor::HandleSort(HloInstruction* sort) {
+Status PoplarAlgebraicSimplifierVisitor::HandleSort(HloInstruction* sort) {
   auto operand = sort->mutable_operand(0);
   int64_t dimension_to_sort = sort->dimensions(0);
   if (ShapeUtil::IsZeroElementArray(operand->shape()) ||
@@ -4070,7 +4091,8 @@ bool OnlyPermutesDegenerateDims(const Shape& shape,
 }
 }  // namespace
 
-Status AlgebraicSimplifierVisitor::HandleTranspose(HloInstruction* transpose) {
+Status PoplarAlgebraicSimplifierVisitor::HandleTranspose(
+    HloInstruction* transpose) {
   auto operand = transpose->mutable_operand(0);
   if (std::is_sorted(transpose->dimensions().begin(),
                      transpose->dimensions().end())) {
@@ -4134,7 +4156,7 @@ Status AlgebraicSimplifierVisitor::HandleTranspose(HloInstruction* transpose) {
   return Status::OK();
 }
 
-StatusOr<bool> AlgebraicSimplifierVisitor::FoldConvFilterPad(
+StatusOr<bool> PoplarAlgebraicSimplifierVisitor::FoldConvFilterPad(
     HloInstruction* convolution) {
   auto* lhs = convolution->mutable_operand(0);
   auto* rhs = convolution->mutable_operand(1);
@@ -4200,7 +4222,7 @@ StatusOr<bool> AlgebraicSimplifierVisitor::FoldConvFilterPad(
   return true;
 }
 
-Status AlgebraicSimplifierVisitor::HandleConvolution(
+Status PoplarAlgebraicSimplifierVisitor::HandleConvolution(
     HloInstruction* convolution) {
   // Zero-sized input or filter.
   if (ShapeUtil::IsZeroElementArray(convolution->operand(0)->shape()) ||
@@ -4243,7 +4265,7 @@ Status AlgebraicSimplifierVisitor::HandleConvolution(
   return Status::OK();
 }
 
-Status AlgebraicSimplifierVisitor::HandleMap(HloInstruction* map) {
+Status PoplarAlgebraicSimplifierVisitor::HandleMap(HloInstruction* map) {
   auto* map_computation = map->to_apply();
   auto* map_root = map_computation->root_instruction();
   if (map_root->opcode() == HloOpcode::kParameter) {
@@ -4281,7 +4303,7 @@ Status AlgebraicSimplifierVisitor::HandleMap(HloInstruction* map) {
   return ReplaceWithNewInstruction(map, std::move(clone));
 }
 
-Status AlgebraicSimplifierVisitor::HandleCustomCall(
+Status PoplarAlgebraicSimplifierVisitor::HandleCustomCall(
     HloInstruction* custom_call) {
   if (pp::IsPoplarInstruction(PoplarOp::MaxPool)(custom_call)) {
     auto* inst = Cast<pp::HloMaxPoolInstruction>(custom_call);
@@ -4336,7 +4358,7 @@ StatusOr<bool> PoplarAlgebraicSimplifier::Run(HloModule* module) {
   XLA_VLOG_LINES(
       2, "PoplarAlgebraicSimplifier::Run(), before:\n" + module->ToString());
   bool changed = false;
-  AlgebraicSimplifierVisitor visitor(this, config_);
+  PoplarAlgebraicSimplifierVisitor visitor(this, config_);
   for (HloComputation* comp : module->MakeComputationPostOrder()) {
     if (pp::IsPopOpsFusion(comp)) {
       continue;

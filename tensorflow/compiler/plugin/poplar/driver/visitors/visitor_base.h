@@ -153,9 +153,11 @@ class BaseVisitor : public DfsHloVisitor {
   UNIMPLEMENTED(HandleCollectivePermuteDone)
   UNIMPLEMENTED(HandleRngBitGenerator)
   UNIMPLEMENTED(HandleDynamicReshape)
-  UNIMPLEMENTED(HandleAllReduceScatter)
+  UNIMPLEMENTED(HandleReduceScatter)
   UNIMPLEMENTED(HandleAllReduceStart)
   UNIMPLEMENTED(HandleAllReduceDone)
+  UNIMPLEMENTED(HandleAllGatherStart)
+  UNIMPLEMENTED(HandleAllGatherDone)
 
   Status Preprocess(HloInstruction* hlo) override;
 

@@ -137,7 +137,7 @@ StatusOr<bool> ModuleFlatten::Run(HloModule* module) {
         if (!IsPopOpsFusion(inlined_comp) &&
             inlined_comp->parent()->entry_computation() != inlined_comp) {
           CallSite call_site = node.caller_callsites()[0];
-          if (call_site.context() == CallContext::kSequential) {
+          if (call_site.context() == CallContext::kControlFlow) {
             auto* caller = call_site.instruction();
             if (caller->opcode() == HloOpcode::kCall) {
               TF_RETURN_IF_ERROR(caller->DropAllControlDeps());

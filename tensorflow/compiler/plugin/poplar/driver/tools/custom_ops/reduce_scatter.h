@@ -64,7 +64,7 @@ class HloReduceScatterInstruction : public HloPoplarInstruction {
   PoplarReplicaGroups replica_groups_;
 };
 
-std::unique_ptr<HloInstruction> CreateReduceScatter(
+std::unique_ptr<HloInstruction> CreatePoplarReduceScatter(
     const Shape& shape, absl::Span<HloInstruction* const> input,
     CollectiveOperator op, PoplarReplicaGroups replica_groups = {});
 

@@ -347,7 +347,7 @@ bool CopyShardingFromCalledSubcomp(HloInstruction* inst) {
 bool CopyShardingToCalledComputations(const CallSite& site,
                                       HloComputation* comp) {
   bool made_progress = false;
-  if (site.context() == CallContext::kSequential) {
+  if (site.context() == CallContext::kControlFlow) {
     auto* caller = site.instruction();
 
     // Inputs. For call and while operations, the number of parameters in the
@@ -1034,7 +1034,7 @@ static void MatchBodyShardingToInput(const CallGraphNode& call_graph_node,
 static void SetShardingOfCallers(const CallGraphNode& call_graph_node,
                                  HloComputation* comp) {
   for (auto cs : call_graph_node.caller_callsites()) {
-    if (cs.context() == CallContext::kSequential) {
+    if (cs.context() == CallContext::kControlFlow) {
       auto* caller = cs.instruction();
       if (comp->root_instruction()->shape() == caller->shape()) {
         SetSharding(caller, comp->root_instruction()->sharding());
@@ -1073,7 +1073,7 @@ MarkComputationsNotConsideredForSharding(
     auto call_graph_node = call_graph.GetNode(comp);
     // Only call/while/if type computations can be sharded. map/sort/reduce
     // ones take the sharding of the caller.
-    if (call_graph_node.context() != CallContext::kSequential) {
+    if (call_graph_node.context() != CallContext::kControlFlow) {
       completed.insert(comp);
       continue;
     }

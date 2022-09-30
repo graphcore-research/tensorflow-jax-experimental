@@ -234,6 +234,9 @@ class PVTICompilerStats : public xla::CompilationStats {
 
   // Pure virtual but not needed for our tracepoints.
   void CompilationReport() override {}
+
+  // Pure virtual but not needed for our tracepoints.
+  int GetPassesSize() override { return 0; }
 };
 
 bool GetConstantSubOutput(const HloInstruction* root, const Shape& layout,
