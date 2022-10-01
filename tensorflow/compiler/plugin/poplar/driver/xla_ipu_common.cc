@@ -31,6 +31,7 @@ namespace poplarplugin {}
 namespace xp = ::xla::poplarplugin;
 
 namespace tensorflow {
+using tensorflow::IdentityShapeRepresentationFn;
 
 std::vector<DataType> GetIPUSupportedTypes() {
   // Lambda which will get all the supported types given the flags.
@@ -152,7 +153,11 @@ Status XlaGraphcoreDeviceFactory::CreateDevices(
   devopts.compilation_device_name = device_xla_jit_;
   devopts.device_name = device_xla_;
   devopts.supports_may_alias_resource_update = false;
-
+  // Same as CPU XLA device: no change in shape and preferred layout.
+  XlaShapeLayoutHelpers::ShapeDeterminationFns shape_representation_fns{
+      UseNoPreferenceLayoutFn(), IdentityShapeRepresentationFn()};
+  devopts.shape_determination_fns = {shape_representation_fns};
+  
   int num_devices = p->VisibleDeviceCount();
 
   for (int ordinal = 0; ordinal < num_devices; ordinal++) {

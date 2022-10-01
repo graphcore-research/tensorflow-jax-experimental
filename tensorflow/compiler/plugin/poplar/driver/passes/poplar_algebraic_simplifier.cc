@@ -80,6 +80,13 @@ constexpr int64_t very_small_gather_size = 4;
 
 }  // namespace
 
+// Copy definition from 2.7 TF release.
+template <typename T>
+inline bool IsPowerOfTwo(T x) {
+  static_assert(!std::numeric_limits<T>::is_signed, "unsigned types only");
+  return x != 0 && (x & (x - 1)) == 0;
+}
+
 HloInstruction*
 PoplarAlgebraicSimplifierVisitor::PreserveFrontendAttributesIfNeeded(
     HloInstruction* new_inst, const HloInstruction* old_inst) {

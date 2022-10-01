@@ -162,7 +162,8 @@ ENTRY main {
       // Inter-ipu-copy between stage 2 and 3
       {entry_computation->GetInstructionWithName("inter-ipu-copy.1"), 2},
       // FIFO after stage 0
-      {entry_computation->GetInstructionWithName("fifo"), 0},
+      {entry_computation->GetInstructionWithName("a1"), 0},
+      // {entry_computation->GetInstructionWithName("fifo"), 0},
   };
 
   auto placeholder = resources->main_graph->addVariable(poplar::FLOAT, {2});
@@ -196,14 +197,14 @@ ENTRY main {
   engine.run(0);
   device.detach();
 
-  const std::string expected = R"(/print-tensor: [ 306.0000 6012.0000]
-/print-tensor: [ 306.0000 6012.0000]
-/print-tensor: [ 306.0000 6012.0000]
-/print-tensor: [ 306.0000 6012.0000]
-/print-tensor: [ 306.0000 6012.0000]
-/print-tensor: [ 306.0000 6012.0000]
-/print-tensor: [ 306.0000 6012.0000]
-/print-tensor: [ 306.0000 6012.0000]
+  const std::string expected = R"(/token_f: [ 306.0000 6012.0000]
+/token_f: [ 306.0000 6012.0000]
+/token_f: [ 306.0000 6012.0000]
+/token_f: [ 306.0000 6012.0000]
+/token_f: [ 306.0000 6012.0000]
+/token_f: [ 306.0000 6012.0000]
+/token_f: [ 306.0000 6012.0000]
+/token_f: [ 306.0000 6012.0000]
 )";
 
   ASSERT_EQ(expected, ss.str());
@@ -306,7 +307,8 @@ ENTRY main {
       // Inter-ipu-copy between stage 2 and 3
       {entry_computation->GetInstructionWithName("inter-ipu-copy.1"), 2},
       // FIFO after stage 0
-      {entry_computation->GetInstructionWithName("fifo"), 0},
+      {entry_computation->GetInstructionWithName("a1"), 0},
+      // {entry_computation->GetInstructionWithName("fifo"), 0},
   };
 
   auto placeholder = resources->main_graph->addVariable(poplar::FLOAT, {});
@@ -503,9 +505,11 @@ ENTRY main {
       {entry_computation->GetInstructionWithName("gte_e"), 4},
       {entry_computation->GetInstructionWithName("d"), 5},
       // FIFO after stage 0
-      {entry_computation->GetInstructionWithName("fifo"), 0},
+      {entry_computation->GetInstructionWithName("a1"), 0},
+      // {entry_computation->GetInstructionWithName("fifo"), 0},
       // FIFO after stage 0
-      {entry_computation->GetInstructionWithName("fifo.1"), 1},
+      {entry_computation->GetInstructionWithName("b1"), 1},
+      // {entry_computation->GetInstructionWithName("fifo.1"), 1},
       // Inter-ipu-copy between stage 0 and 1
       {entry_computation->GetInstructionWithName("inter-ipu-copy"), 0},
       // Inter-ipu-copy between stage 1 and 2
@@ -760,78 +764,78 @@ ENTRY main {
   engine.run(0);
   device.detach();
 
-  const std::string expected = R"(/print-tensor: 0.0000000
-/print-tensor.1: 1.0000000
-/print-tensor: 0.0000000
-/print-tensor.2: 2.0000000
-/print-tensor.1: 1.0000000
-/print-tensor: 0.0000000
-/print-tensor.3: 3.0000000
-/print-tensor.2: 2.0000000
-/print-tensor.1: 1.0000000
-/print-tensor: 0.0000000
-/print-tensor.4: 4.0000000
-/print-tensor.3: 3.0000000
-/print-tensor.2: 2.0000000
-/print-tensor.1: 1.0000000
-/print-tensor: 0.0000000
-/print-tensor.5: 5.0000000
-/print-tensor.4: 4.0000000
-/print-tensor.3: 3.0000000
-/print-tensor.2: 2.0000000
-/print-tensor.1: 1.0000000
-/print-tensor: 0.0000000
-/print-tensor.5: 5.0000000
-/print-tensor.4: 4.0000000
-/print-tensor.3: 3.0000000
-/print-tensor.2: 2.0000000
-/print-tensor.1: 1.0000000
-/print-tensor: 0.0000000
-/print-tensor.5: 5.0000000
-/print-tensor.4: 4.0000000
-/print-tensor.3: 3.0000000
-/print-tensor.2: 2.0000000
-/print-tensor.1: 1.0000000
-/print-tensor: 0.0000000
-/print-tensor.5: 5.0000000
-/print-tensor.4: 4.0000000
-/print-tensor.3: 3.0000000
-/print-tensor.2: 2.0000000
-/print-tensor.1: 1.0000000
-/print-tensor: 0.0000000
-/print-tensor.5: 5.0000000
-/print-tensor.4: 4.0000000
-/print-tensor.3: 3.0000000
-/print-tensor.2: 2.0000000
-/print-tensor.1: 1.0000000
-/print-tensor: 0.0000000
-/print-tensor.5: 5.0000000
-/print-tensor.4: 4.0000000
-/print-tensor.3: 3.0000000
-/print-tensor.2: 2.0000000
-/print-tensor.1: 1.0000000
-/print-tensor: 0.0000000
-/print-tensor.5: 5.0000000
-/print-tensor.4: 4.0000000
-/print-tensor.3: 3.0000000
-/print-tensor.2: 2.0000000
-/print-tensor.1: 1.0000000
-/print-tensor: 0.0000000
-/print-tensor.5: 5.0000000
-/print-tensor.4: 4.0000000
-/print-tensor.3: 3.0000000
-/print-tensor.2: 2.0000000
-/print-tensor.1: 1.0000000
-/print-tensor.5: 5.0000000
-/print-tensor.4: 4.0000000
-/print-tensor.3: 3.0000000
-/print-tensor.2: 2.0000000
-/print-tensor.5: 5.0000000
-/print-tensor.4: 4.0000000
-/print-tensor.3: 3.0000000
-/print-tensor.5: 5.0000000
-/print-tensor.4: 4.0000000
-/print-tensor.5: 5.0000000
+  const std::string expected = R"(/token_f: 0.0000000
+/token_f.1: 1.0000000
+/token_f: 0.0000000
+/token_f.2: 2.0000000
+/token_f.1: 1.0000000
+/token_f: 0.0000000
+/token_f.3: 3.0000000
+/token_f.2: 2.0000000
+/token_f.1: 1.0000000
+/token_f: 0.0000000
+/token_f.4: 4.0000000
+/token_f.3: 3.0000000
+/token_f.2: 2.0000000
+/token_f.1: 1.0000000
+/token_f: 0.0000000
+/token_f.5: 5.0000000
+/token_f.4: 4.0000000
+/token_f.3: 3.0000000
+/token_f.2: 2.0000000
+/token_f.1: 1.0000000
+/token_f: 0.0000000
+/token_f.5: 5.0000000
+/token_f.4: 4.0000000
+/token_f.3: 3.0000000
+/token_f.2: 2.0000000
+/token_f.1: 1.0000000
+/token_f: 0.0000000
+/token_f.5: 5.0000000
+/token_f.4: 4.0000000
+/token_f.3: 3.0000000
+/token_f.2: 2.0000000
+/token_f.1: 1.0000000
+/token_f: 0.0000000
+/token_f.5: 5.0000000
+/token_f.4: 4.0000000
+/token_f.3: 3.0000000
+/token_f.2: 2.0000000
+/token_f.1: 1.0000000
+/token_f: 0.0000000
+/token_f.5: 5.0000000
+/token_f.4: 4.0000000
+/token_f.3: 3.0000000
+/token_f.2: 2.0000000
+/token_f.1: 1.0000000
+/token_f: 0.0000000
+/token_f.5: 5.0000000
+/token_f.4: 4.0000000
+/token_f.3: 3.0000000
+/token_f.2: 2.0000000
+/token_f.1: 1.0000000
+/token_f: 0.0000000
+/token_f.5: 5.0000000
+/token_f.4: 4.0000000
+/token_f.3: 3.0000000
+/token_f.2: 2.0000000
+/token_f.1: 1.0000000
+/token_f: 0.0000000
+/token_f.5: 5.0000000
+/token_f.4: 4.0000000
+/token_f.3: 3.0000000
+/token_f.2: 2.0000000
+/token_f.1: 1.0000000
+/token_f.5: 5.0000000
+/token_f.4: 4.0000000
+/token_f.3: 3.0000000
+/token_f.2: 2.0000000
+/token_f.5: 5.0000000
+/token_f.4: 4.0000000
+/token_f.3: 3.0000000
+/token_f.5: 5.0000000
+/token_f.4: 4.0000000
+/token_f.5: 5.0000000
 )";
 
   ASSERT_EQ(expected, ss.str());
@@ -937,7 +941,8 @@ ENTRY main {
       // Inter-ipu-copy between stage 2 and 3
       {entry_computation->GetInstructionWithName("inter-ipu-copy.1"), 2},
       // FIFO after stage 0
-      {entry_computation->GetInstructionWithName("fifo"), 0},
+      // {entry_computation->GetInstructionWithName("fifo"), 0},
+      {entry_computation->GetInstructionWithName("a1"), 0},
   };
 
   auto placeholder = resources->main_graph->addVariable(poplar::FLOAT, {});
@@ -971,14 +976,14 @@ ENTRY main {
   engine.run(0);
   device.detach();
 
-  const std::string expected = R"(/print-tensor: [206.00000 212.00000]
-/print-tensor: [206.00000 212.00000]
-/print-tensor: [206.00000 212.00000]
-/print-tensor: [206.00000 212.00000]
-/print-tensor: [206.00000 212.00000]
-/print-tensor: [206.00000 212.00000]
-/print-tensor: [206.00000 212.00000]
-/print-tensor: [206.00000 212.00000]
+  const std::string expected = R"(/token_f: [206.00000 212.00000]
+/token_f: [206.00000 212.00000]
+/token_f: [206.00000 212.00000]
+/token_f: [206.00000 212.00000]
+/token_f: [206.00000 212.00000]
+/token_f: [206.00000 212.00000]
+/token_f: [206.00000 212.00000]
+/token_f: [206.00000 212.00000]
 )";
 
   // Check the output of the stage has aliases.
@@ -987,7 +992,7 @@ ENTRY main {
                   .containsAliases());
   // Check that the fifo has aliases.
   ASSERT_TRUE(resources->tensor_maps.GetTensorMapForComputation("pipeline")
-                  .FindTensorByName("fifo", 0)
+                  .FindTensorByName("a1", 0)
                   .containsAliases());
   ASSERT_EQ(expected, ss.str());
 }

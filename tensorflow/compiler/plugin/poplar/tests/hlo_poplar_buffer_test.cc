@@ -164,10 +164,15 @@ TEST_F(AllBufferSetTest, IsPoplarOp) {
   // accumulator create.
   HloInstruction* non_gradient_accu1 =
       FindInstruction(m.get(), "non_gradient_accu1");
+  // TODO: TF2.8 custom-call naming not forwarded properly?
+  // HloInstruction* gradient_accu1 =
+  //     FindInstruction(m.get(), "gradient-accumulator-create");
+  // HloInstruction* gradient_accu2 =
+  //     FindInstruction(m.get(), "gradient-accumulator-create.1");
   HloInstruction* gradient_accu1 =
-      FindInstruction(m.get(), "gradient-accumulator-create");
+      FindInstruction(m.get(), "gradient_accu1");
   HloInstruction* gradient_accu2 =
-      FindInstruction(m.get(), "gradient-accumulator-create.1");
+      FindInstruction(m.get(), "gradient_accu2");
 
   ASSERT_TRUE(gradient_accu1);
   ASSERT_TRUE(gradient_accu2);

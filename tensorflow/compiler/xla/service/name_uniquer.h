@@ -37,7 +37,7 @@ class NameUniquer {
 
   // Get a sanitized unique name in a string, with an optional prefix for
   // convenience.
-  std::string GetUniqueName(absl::string_view prefix = "");
+  virtual std::string GetUniqueName(absl::string_view prefix = "");
 
   // Sanitizes and returns the name. Unallowed characters will be replaced with
   // '_'. The result will match the regexp "[a-zA-Z_][a-zA-Z0-9_.-]*".

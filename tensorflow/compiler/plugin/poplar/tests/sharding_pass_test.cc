@@ -2060,7 +2060,7 @@ main {
   EXPECT_EQ(p1->sharding().GetUniqueDevice(), 1);
   HloInstruction* p2 = FindInstruction(module.get(), "p2");
   EXPECT_EQ(p2->sharding().GetUniqueDevice(), 0);
-  HloInstruction* barrier = FindInstruction(module.get(), "barrier");
+  HloInstruction* barrier = FindInstruction(module.get(), "b");
   EXPECT_EQ(barrier->sharding().tuple_elements()[0].GetUniqueDevice(), 1);
   EXPECT_EQ(barrier->sharding().tuple_elements()[1].GetUniqueDevice(), 1);
   EXPECT_EQ(barrier->sharding().tuple_elements()[2].GetUniqueDevice(), 0);
@@ -2120,7 +2120,7 @@ main {
   EXPECT_EQ(l0->sharding().GetUniqueDevice(), 1);
   HloInstruction* l1 = FindInstruction(module.get(), "l1");
   EXPECT_EQ(l1->sharding().GetUniqueDevice(), 0);
-  HloInstruction* barrier = FindInstruction(module.get(), "barrier");
+  HloInstruction* barrier = FindInstruction(module.get(), "b");
   EXPECT_EQ(barrier->sharding().tuple_elements()[0].GetUniqueDevice(), 1);
   EXPECT_EQ(barrier->sharding().tuple_elements()[1].GetUniqueDevice(), 1);
   EXPECT_EQ(barrier->sharding().tuple_elements()[2].GetUniqueDevice(), 0);

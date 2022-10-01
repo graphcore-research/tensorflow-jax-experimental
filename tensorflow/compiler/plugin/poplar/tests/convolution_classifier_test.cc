@@ -195,7 +195,10 @@ _cluster_1  {
   EXPECT_EQ(all_classifications.size(), 5);
 
   for (auto it : all_classifications) {
+    // Change of naming in TF2.8 with `custom-call`?
     if (it.first->name() == "conv-with-reverse") {
+      EXPECT_EQ(it.second, MLType::TRAINING_BWD);
+    } else if (it.first->name() == "call.2.clone") {
       EXPECT_EQ(it.second, MLType::TRAINING_BWD);
     } else if (it.first->name() == "convolution.19.17.clone") {
       EXPECT_EQ(it.second, MLType::TRAINING_FWD);
@@ -206,7 +209,7 @@ _cluster_1  {
     } else if (it.first->name() == "convolution.19.86.clone") {
       EXPECT_EQ(it.second, MLType::TRAINING_WU);
     } else {
-      FAIL() << "We should not have any missing convolutions";
+      FAIL() << "We should not have any missing convolutions:" << it.first->name();
     }
   }
 }
@@ -394,7 +397,10 @@ ENTRY in {
   EXPECT_EQ(all_classifications.size(), 5);
 
   for (auto it : all_classifications) {
+    // Change of naming in TF2.8 with `custom-call`?
     if (it.first->name() == "conv-with-reverse") {
+      EXPECT_EQ(it.second, MLType::TRAINING_BWD);
+    } else if (it.first->name() == "call.2.clone") {
       EXPECT_EQ(it.second, MLType::TRAINING_BWD);
     } else if (it.first->name() == "convolution.19.17.clone") {
       EXPECT_EQ(it.second, MLType::TRAINING_FWD);
@@ -405,7 +411,7 @@ ENTRY in {
     } else if (it.first->name() == "convolution.19.86.clone") {
       EXPECT_EQ(it.second, MLType::TRAINING_WU);
     } else {
-      FAIL() << "We should not have any missing convolutions";
+      FAIL() << "We should not have any missing convolutions:" << it.first->name();
     }
   }
 }
@@ -594,7 +600,10 @@ ENTRY in {
   EXPECT_EQ(all_classifications.size(), 5);
 
   for (auto it : all_classifications) {
+    // Change of naming in TF2.8 with `custom-call`?
     if (it.first->name() == "conv-with-reverse") {
+      EXPECT_EQ(it.second, MLType::TRAINING_BWD);
+    } else if (it.first->name() == "call.2.clone") {
       EXPECT_EQ(it.second, MLType::TRAINING_BWD);
     } else if (it.first->name() == "convolution.19.17.clone") {
       EXPECT_EQ(it.second, MLType::TRAINING_FWD);
@@ -605,7 +614,7 @@ ENTRY in {
     } else if (it.first->name() == "convolution.19.86.clone") {
       EXPECT_EQ(it.second, MLType::TRAINING_WU);
     } else {
-      FAIL() << "We should not have any missing convolutions";
+      FAIL() << "We should not have any missing convolutions:" << it.first->name();
     }
   }
 }
@@ -714,7 +723,7 @@ TEST_F(ConvolutionClassifierTest, SingleConvTraining) {
     } else if (it.first->name() == "convolution.7.13.clone") {
       EXPECT_EQ(it.second, MLType::TRAINING_FWD);
     } else {
-      FAIL() << "We should not have any missing convolutions";
+      FAIL() << "We should not have any missing convolutions:" << it.first->name();
     }
   }
 }

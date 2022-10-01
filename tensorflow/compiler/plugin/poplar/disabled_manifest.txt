@@ -35,6 +35,21 @@ FFTTest # No support for FFT
 GatherTest.testHigherRank # Bad
 IgammaTest.testGradMediumValues # Too slow
 IgammaTest.testGradLargeValues # Too slow
+IgammaTest.testLargeValues1 # FP64
+IgammacTest.testLargeValues1
+Log1pTest.testSmallX1 # FP64
+Log1pTest.testXGreaterThanOne1
+Log1pTest.testGreaterThanNegativeTenExponent1
+Log1pTest.testGreaterThanNegativeFiveExponent1
+Log1pTest.testGreaterThanNegativeTwentyExponent1
+Log1pTest.testXGreaterThanOneTenth1
+ZetaTest.testMediumValues1
+ZetaTest.testSmallValues1
+ZetaTest.testBadValues
+ZetaTest.testLargeValues1
+PolygammaTest.testMediumLargeN1
+PolygammaTest.testBadValues
+PolygammaTest.testSmallN1
 InverseOpTest # matrix inversing
 ListDiffTest.testEmptyY # no int64 iota
 ListDiffTest.testNonOverlapping # no int64 iota
@@ -132,3 +147,5 @@ SLogDetOpTest # Need to register LogMatrixDeterminant op
 TridiagonalSolveOpsTest # need to register TridiagonalSolve op
 StatefulRandomOpsTest # T37613 - Need to support kRngBitGenerator
 CastOpsTest.testBitcastToLarger # T64432 - No bitcast for type with different data size.
+MatrixTriangularSolveOpTest.testBfloat16
+RandomOpsTest.testParameterizedTruncatedNormalBatched   # Too big for IPU 2d vertex.

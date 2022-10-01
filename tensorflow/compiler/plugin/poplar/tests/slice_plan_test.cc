@@ -476,10 +476,14 @@ ENTRY e {
   TF_EXPECT_OK(
       EmbeddingPlansPreplanning(*resources).Run(module.get()).status());
 
+  // const HloInstruction* multi_slice =
+  //     FindInstruction(module.get(), "multi-slice");
+  // const HloInstruction* multi_update_add =
+  //     FindInstruction(module.get(), "multi-update-add");
   const HloInstruction* multi_slice =
-      FindInstruction(module.get(), "multi-slice");
+      FindInstruction(module.get(), "slice1");
   const HloInstruction* multi_update_add =
-      FindInstruction(module.get(), "multi-update-add");
+      FindInstruction(module.get(), "gradient_accumulation_buffer_updated");
 
   // Plan is shared, even though gradient accumulation is used.
   TF_ASSERT_OK_AND_ASSIGN(auto multi_slice_plan,

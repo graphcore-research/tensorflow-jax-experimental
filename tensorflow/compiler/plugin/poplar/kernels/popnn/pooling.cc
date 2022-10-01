@@ -51,11 +51,11 @@ xla::StatusOr<xla::Window> MakeWindow(
     absl::Span<const int64_t> lhs_dilation,
     absl::Span<const int64_t> rhs_dilation) {
   TF_RETURN_IF_ERROR(
-      xla::ValidatePaddingValues(xla::AsInt64Slice(input_shape.dimensions()),
+      xla::ValidatePaddingValues(input_shape.dimensions(),
                                  window_dimensions, window_strides));
 
   std::vector<std::pair<int64_t, int64_t>> padding =
-      xla::MakePadding(xla::AsInt64Slice(input_shape.dimensions()),
+      xla::MakePadding(input_shape.dimensions(),
                        window_dimensions, window_strides, xla_padding);
 
   const auto verify_size = [&](const size_t x, const char* x_name) {

@@ -45,6 +45,7 @@ ComparatorsTest.CompareGtF64 POPLAR
 ReducedPrecisionAccuracyTest POPLAR
 MathTest.BesselI0eDouble POPLAR
 MathTest.BesselI1eDouble POPLAR
+MathTest.CbrtSixF64Values POPLAR
 
 Bfloat16Test POPLAR // No bfloat16
 DynamicSliceTest.Int32R1BF16 POPLAR

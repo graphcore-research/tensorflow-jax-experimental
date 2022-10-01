@@ -30,7 +30,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/hlo_instructions.h"
 #include "tensorflow/compiler/xla/service/pattern_matcher.h"
 #include "tensorflow/compiler/xla/service/shape_inference.h"
-
+#include "tensorflow/compiler/xla/service/shape_inference.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
 
@@ -84,7 +84,7 @@ bool CheckValidMultiUpdateAttributes(const HloInstruction* inst) {
   }
 
   auto scatter_dimension_opt = GetScatterDimension(
-      updates_shape.rank(), AsInt64Slice(update_window_dims));
+      updates_shape.rank(), update_window_dims);
   if (!scatter_dimension_opt) {
     return false;
   }
@@ -179,7 +179,7 @@ StatusOr<bool> ReplaceScatter(HloInstruction* scatter) {
   TF_ASSIGN_OR_RETURN(indices, MakeReshapeHlo(new_indices_shape, indices));
 
   const int64_t scatter_dimension = *GetScatterDimension(
-      updates->shape().rank(), AsInt64Slice(update_window_dims));
+      updates->shape().rank(), update_window_dims);
 
   const std::vector<int64_t> permutation =
       GetPermutation(operand, scatter_dimension);

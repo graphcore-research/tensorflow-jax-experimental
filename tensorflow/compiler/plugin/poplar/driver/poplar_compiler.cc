@@ -205,7 +205,7 @@ limitations under the License.
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/random/random.h"
 #include "tensorflow/core/platform/cpu_info.h"
-#include "tensorflow/core/platform/error.h"
+#include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/public/version.h"
 
 namespace se = ::stream_executor;
@@ -1083,12 +1083,12 @@ struct ExecutableCacheLock {
       const std::string& filepath, int flag) {
     const int fd = ::open(filepath.c_str(), O_RDWR | O_CREAT, 0644);
     if (fd == -1) {
-      return tensorflow::IOError("Failed to open " + filepath, errno);
+      return tensorflow::errors::IOError("Failed to open " + filepath, errno);
     }
 
     VLOG(1) << "Acquiring lock for " << filepath;
     if (::flock(fd, flag) == -1) {
-      return tensorflow::IOError("Failed to lock " + filepath, errno);
+      return tensorflow::errors::IOError("Failed to lock " + filepath, errno);
     }
 
     VLOG(1) << "Acquired lock for " << filepath;

@@ -418,7 +418,7 @@ StatusOr<HloInstruction*> OptimizeDotOfReorderContractingDims(
              return (b != a + 1);
            }) == dims.end();
   };
-  if (!is_iota(AsInt64Slice(lhs_contracting_dims))) {
+  if (!is_iota(lhs_contracting_dims)) {
     return nullptr;
   }
   lhs = lhs->mutable_operand(0);
@@ -439,7 +439,7 @@ StatusOr<HloInstruction*> OptimizeDotOfReorderContractingDims(
   }
   CHECK(IsPermutation(permutation));
   auto new_lhs_contracting_dims =
-      ComposePermutations(AsInt64Slice(lhs_contracting_dims), permutation);
+      ComposePermutations(lhs_contracting_dims, permutation);
   lhs_contracting_dims.Clear();
   for (auto dim : new_lhs_contracting_dims) {
     lhs_contracting_dims.Add(dim);
@@ -620,8 +620,8 @@ StatusOr<HloInstruction*> OptimizeDotStrengthReduction(
 
   TF_ASSIGN_OR_RETURN(HloInstruction * new_lhs,
                       NormalizeDotOperandToBatchMajorAndContractingMinor(
-                          lhs, AsInt64Slice(lhs_batch_dimensions),
-                          AsInt64Slice(lhs_contracting_dimensions)));
+                          lhs, lhs_batch_dimensions,
+                          lhs_contracting_dimensions));
 
   if (!ShapeUtil::SameElementType(dot->shape(), new_lhs->shape())) {
     new_lhs = MakeConvertToHlo(new_lhs, dot->shape().element_type());
@@ -629,8 +629,8 @@ StatusOr<HloInstruction*> OptimizeDotStrengthReduction(
 
   TF_ASSIGN_OR_RETURN(HloInstruction * new_rhs,
                       NormalizeDotOperandToBatchMajorAndContractingMinor(
-                          rhs, AsInt64Slice(rhs_batch_dimensions),
-                          AsInt64Slice(rhs_contracting_dimensions)));
+                          rhs, rhs_batch_dimensions,
+                          rhs_contracting_dimensions));
 
   if (!ShapeUtil::SameElementType(dot->shape(), new_rhs->shape())) {
     new_rhs = MakeConvertToHlo(new_rhs, dot->shape().element_type());

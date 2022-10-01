@@ -5649,22 +5649,22 @@ TEST_F(PoplarAlgebraicSimplifierTest, CompareNegate) {
       HloPassFix<PoplarAlgebraicSimplifier>().Run(m.get()).ValueOrDie());
   ASSERT_TRUE(HloPassFix<HloConstantFolding>().Run(m.get()).ValueOrDie());
 
-  auto* cmp1 = FindInstruction(m.get(), "compare");
+  auto* cmp1 = FindInstruction(m.get(), "cmp1");
   CHECK_NOTNULL(cmp1);
   EXPECT_EQ(cmp1->comparison_direction(), ComparisonDirection::kGt);
-  auto* cmp2 = FindInstruction(m.get(), "compare.1");
+  auto* cmp2 = FindInstruction(m.get(), "cmp2");
   CHECK_NOTNULL(cmp2);
   EXPECT_EQ(cmp2->comparison_direction(), ComparisonDirection::kGe);
-  auto* cmp3 = FindInstruction(m.get(), "compare.2");
+  auto* cmp3 = FindInstruction(m.get(), "cmp3");
   CHECK_NOTNULL(cmp3);
   EXPECT_EQ(cmp3->comparison_direction(), ComparisonDirection::kLt);
-  auto* cmp4 = FindInstruction(m.get(), "compare.3");
+  auto* cmp4 = FindInstruction(m.get(), "cmp4");
   CHECK_NOTNULL(cmp4);
   EXPECT_EQ(cmp4->comparison_direction(), ComparisonDirection::kLe);
-  auto* cmp5 = FindInstruction(m.get(), "compare.4");
+  auto* cmp5 = FindInstruction(m.get(), "cmp5");
   CHECK_NOTNULL(cmp5);
   EXPECT_EQ(cmp5->comparison_direction(), ComparisonDirection::kEq);
-  auto* cmp6 = FindInstruction(m.get(), "compare.5");
+  auto* cmp6 = FindInstruction(m.get(), "cmp6");
   CHECK_NOTNULL(cmp6);
   EXPECT_EQ(cmp6->comparison_direction(), ComparisonDirection::kNe);
 
