@@ -78,6 +78,7 @@ limitations under the License.
 #include "tensorflow/core/util/batch_util.h"
 #include "tensorflow/core/util/stream_executor_util.h"
 #include "tensorflow/stream_executor/lib/statusor.h"
+#include "tensorflow/core/util/version_info.h"
 
 template <typename T>
 using StatusOr = xla::StatusOr<T>;
@@ -949,10 +950,10 @@ class EngineManager {
           proto.tf_major_version(), ".", proto.tf_minor_version(), ".");
     }
 
-    if (proto.tf_git_version() != tf_git_version()) {
+    if (proto.tf_git_version() != TF_GIT_VERSION) {
       return errors::InvalidArgument(
           "TensorFlow build version mismatch. Runtime version is ",
-          tf_git_version(), ", executable version is ", proto.tf_git_version(),
+          TF_GIT_VERSION, ", executable version is ", proto.tf_git_version(),
           ".");
     }
 

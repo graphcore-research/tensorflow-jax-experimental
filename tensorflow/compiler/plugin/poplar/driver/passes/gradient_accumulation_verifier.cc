@@ -68,8 +68,8 @@ Status GradientAccumulationVerifier::VerifyStatefulGradientAccumulation(
     const int32 num_mini_batches = grad_inst->MiniBatchesToAccumulate();
 
     // Expect this computation to have a unique call site.
-    auto call_graph_node = call_graph->GetNode(comp);
-    auto& callsites = call_graph_node.caller_callsites();
+    const auto& call_graph_node = call_graph->GetNode(comp);
+    const auto& callsites = call_graph_node.caller_callsites();
     if (callsites.size() == 0) {
       return FailedPrecondition(
           "Detected a gradient accumulation operation which is not inside "
@@ -258,8 +258,8 @@ Status GradientAccumulationVerifier::VerifyGenericGradientAccumulation(
   }
 
   // Expect this computation to have a unique call site.
-  auto call_graph_node = call_graph->GetNode(inst->parent());
-  auto& callsites = call_graph_node.caller_callsites();
+  const auto& call_graph_node = call_graph->GetNode(inst->parent());
+  const auto& callsites = call_graph_node.caller_callsites();
   if (callsites.size() == 0) {
     return FailedPrecondition(
         "Detected a gradient accumulation operation which is not inside "

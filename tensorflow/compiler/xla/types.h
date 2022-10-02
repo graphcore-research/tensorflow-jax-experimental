@@ -25,18 +25,17 @@ namespace xla {
 using ::Eigen::bfloat16;  // NOLINT(misc-unused-using-decls)
 using ::Eigen::half;      // NOLINT(misc-unused-using-decls)
 
-// using ::tensorflow::string;
-// using ::tensorflow::int16;
-// using ::tensorflow::int32;
-// using ::tensorflow::int8;
-// using ::tensorflow::int64;
+using int8 = int8_t;
+using int16 = int16_t;
+using int32 = int32_t;
+using int64 = int64_t;
 
-// using ::tensorflow::bfloat16;
+using uint8 = uint8_t;
+using uint16 = uint16_t;
+using uint32 = uint32_t;
+using uint64 = uint64_t;
 
-// using ::tensorflow::uint16;
-// using ::tensorflow::uint32;
-// using ::tensorflow::uint64;
-// using ::tensorflow::uint8;
+using string = std::string;
 
 using complex64 = std::complex<float>;
 using complex128 = std::complex<double>;

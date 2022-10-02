@@ -319,8 +319,9 @@ XlaCompilationCache::BuildSerializedExecutable(
 
   std::vector<const xla::Shape*> argument_layouts =
       GetShapePointers(result.xla_input_shapes);
+  // TODO: IPU build options?
   xla::ExecutableBuildOptions build_options =
-      GetBuildOptions(options, result, client_->default_device_ordinal());
+      GetBuildOptions(options, result, client_->default_device_ordinal(), {}, {}, {});
   TF_ASSIGN_OR_RETURN(
       std::vector<std::unique_ptr<xla::AotCompilationResult>> aot_results,
       client_->CompileAheadOfTime(*result.computation, argument_layouts,
@@ -336,8 +337,9 @@ XlaCompilationCache::LoadExecutable(
     const std::string& serialized_aot_result) {
   VLOG(2) << "Loading local executable using BEF.";
 
+  // TODO: IPU build options?
   xla::ExecutableBuildOptions build_options =
-      GetBuildOptions(options, result, client_->default_device_ordinal());
+      GetBuildOptions(options, result, client_->default_device_ordinal(), {}, {}, {});
   return client_->Load(serialized_aot_result, build_options);
 }
 

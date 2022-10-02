@@ -99,7 +99,7 @@ class PartitionedElementwiseClusterVisitor : public DeferredVisitor {
 
   struct HloShardingPtrHash {
     std::size_t operator()(const HloShardingPtr& sharding) const {
-      return sharding ? sharding->Hash() : 0;
+      return sharding ? absl::HashOf(*sharding) : 0;
     }
   };
 

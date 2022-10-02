@@ -1070,7 +1070,7 @@ MarkComputationsNotConsideredForSharding(
       completed.insert(comp);
       continue;
     }
-    auto call_graph_node = call_graph.GetNode(comp);
+    const auto& call_graph_node = call_graph.GetNode(comp);
     // Only call/while/if type computations can be sharded. map/sort/reduce
     // ones take the sharding of the caller.
     if (call_graph_node.context() != CallContext::kControlFlow) {

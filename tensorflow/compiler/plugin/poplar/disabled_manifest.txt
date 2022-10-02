@@ -115,6 +115,14 @@ StatelessRandomOpsTest.testTruncatedNormal # Tests float64
 StatelessRandomOpsTest.testDistributionOfStatelessRandomNormal # rng-bit-generator not supported (T37613)
 StatelessRandomOpsTest.testLargeNormal # rng-bit-generator not supported (T37613)
 StatelessRandomOpsTest.testRandomNormalIsFinite # rng-bit-generator not supported (T37613)
+StatelessRandomOpsTest.testParameterizedTruncatedNormalBroadcast # rng-bit-generator not supported (T37613)
+StatelessRandomOpsTest.testParameterizedTruncatedNormalDefault # rng-bit-generator not supported (T37613)
+StatelessRandomOpsTest.testParameterizedTruncatedNormalLeftTail # rng-bit-generator not supported (T37613)
+StatelessRandomOpsTest.testParameterizedTruncatedNormalLeftTailTwoSidedBounds # rng-bit-generator not supported (T37613)
+StatelessRandomOpsTest.testParameterizedTruncatedNormalRightTail # rng-bit-generator not supported (T37613)
+StatelessRandomOpsTest.testParameterizedTruncatedNormalShifted # rng-bit-generator not supported (T37613)
+StatelessRandomOpsTest.testParameterizedTruncatedNormalSmallStddev # rng-bit-generator not supported (T37613)
+
 SvdOpTest # Seg fault
 UnaryOpsTest.testIntOps$ # Unsupported cast
 UnaryOpsTest.testFloatOps$ # Different NaN behaviour on sign

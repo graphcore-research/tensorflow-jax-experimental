@@ -159,7 +159,7 @@ bool IsConvFilterTranspose(const HloInstruction* inst) {
   // special 'reverse spatial dimensions' feature of the convolution
   // to achieve the reverse
   if (inst->users().size() != 1) return false;
-  const std::vector<int64_t>& rev(inst->dimensions());
+  const auto& rev = inst->dimensions();
 
   HloInstruction* conv = inst->users()[0];
   if (conv->opcode() != HloOpcode::kConvolution) {
@@ -187,7 +187,7 @@ bool IsBiasReduce(const HloInstruction* inst) {
 
   if (inst->shape().rank() != 1) return false;
 
-  const std::vector<int64_t>& dims(inst->dimensions());
+  const auto& dims = inst->dimensions();
   if (static_cast<int64_t>(dims.size()) !=
       inst->operand(0)->shape().rank() - 1) {
     return false;

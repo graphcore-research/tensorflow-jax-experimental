@@ -159,6 +159,11 @@ class BaseVisitor : public DfsHloVisitor {
   UNIMPLEMENTED(HandleAllGatherStart)
   UNIMPLEMENTED(HandleAllGatherDone)
 
+  UNIMPLEMENTED(HandleOptimizationBarrier)
+  UNIMPLEMENTED(HandleAsyncStart)
+  UNIMPLEMENTED(HandleAsyncUpdate)
+  UNIMPLEMENTED(HandleAsyncDone)
+
   Status Preprocess(HloInstruction* hlo) override;
 
   // Add the sequence produced for the given instruction. Note that a

@@ -73,6 +73,7 @@ poplar_cc_library(
         "//tensorflow/compiler/plugin/poplar/driver:poplar_platform",
         "//tensorflow/compiler/plugin/poplar/driver/tools:poplar_executable_binary_file",
         "//tensorflow/compiler/plugin/poplar/driver/tools:tracepoint",
+        "//tensorflow/core/util:version_info",
         "@local_config_poplar//poplar:poplar_libs",
     ],
     alwayslink = True,

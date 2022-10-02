@@ -118,9 +118,11 @@ bool CompareCachedInstruction(const HloInstruction* a,
     }
     return protobuf_util::ProtobufEquals(backend_config_a, backend_config_b);
   };
-  return a->Identical(*b, compare_operands, compare_comps, false,
-                      compare_backend_configs) &&
+  return a->Identical(*b, compare_operands, compare_comps, false) &&
          GetSingleShardingDeviceId(a) == GetSingleShardingDeviceId(b);
+  // return a->Identical(*b, compare_operands, compare_comps, false,
+  //                     compare_backend_configs) &&
+  //        GetSingleShardingDeviceId(a) == GetSingleShardingDeviceId(b);
 }
 
 bool ComputationContainsCachedInstruction(const HloComputation* comp) {
@@ -131,7 +133,7 @@ bool ComputationContainsCachedInstruction(const HloComputation* comp) {
 size_t SubcomputationGraphCacheKeyHash::operator()(
     const SubcomputationGraphCacheKey& key) const {
   if (ComputationContainsCachedInstruction(key.computation)) {
-    return key.computation->root_instruction()->Hash();
+    return absl::HashOf(*(key.computation->root_instruction()));
   } else {
     size_t hash = HloComputationHash()(key.computation);
     for (auto& operand_handles : key.remote_buffer_handles) {

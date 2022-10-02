@@ -250,8 +250,7 @@ class ImplicitBinaryElementwiseOp : public BinaryElementwiseOp {
         inst->fused_expression_root()->operand(input_index);
     CHECK_EQ(broadcast->opcode(), HloOpcode::kBroadcast);
 
-    const std::vector<int64_t> non_broadcast_dimensions =
-        broadcast->dimensions();
+    const auto& non_broadcast_dimensions = broadcast->dimensions();
     absl::flat_hash_set<int64_t> non_broadcast_dimensions_set{
         non_broadcast_dimensions.begin(), non_broadcast_dimensions.end()};
 

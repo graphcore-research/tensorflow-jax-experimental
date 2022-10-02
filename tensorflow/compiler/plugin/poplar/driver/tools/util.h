@@ -49,6 +49,14 @@ class HloSharding;
 class Literal;
 class Shape;
 
+template <typename T>
+std::vector<T> to_vector(absl::Span<const T> span)
+{
+  std::vector<T> values;
+  values.assign(span.begin(), span.end());
+  return values;
+}
+
 namespace poplarplugin {
 namespace {
 template <typename To, typename From>

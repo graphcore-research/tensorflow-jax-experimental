@@ -985,10 +985,11 @@ size_t HloComputationHash::operator()(const HloComputation* comp) const {
   // might not be the same but the instructions still represent the same
   // computation.
   size_t hash = 7;
+  // TODO: use Abseil Hash `combine` method?
   for (HloInstruction* param : comp->parameter_instructions()) {
-    hash = tensorflow::Hash64Combine(hash, param->Hash());
+    hash = tensorflow::Hash64Combine(hash, absl::HashOf(*param));
   }
-  return tensorflow::Hash64Combine(hash, comp->root_instruction()->Hash());
+  return tensorflow::Hash64Combine(hash, absl::HashOf(*comp->root_instruction()));
 }
 
 bool HloComputationEquals::operator()(const HloComputation* a,

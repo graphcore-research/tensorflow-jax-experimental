@@ -43,6 +43,8 @@ class HloDimensionsInstruction : public HloInstruction {
         dimensions_(dimensions.begin(), dimensions.end()) {}
 
   absl::Span<const int64_t> dimensions() const override { return dimensions_; }
+  
+  int64_t dimensions(int64_t index) const { return dimensions()[index]; }
 
   std::vector<int64_t>* mutable_dimensions() override { return &dimensions_; }
 

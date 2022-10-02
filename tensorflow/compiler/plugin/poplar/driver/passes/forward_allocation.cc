@@ -396,8 +396,8 @@ StatusOr<ForwardAllocationGraph::MetaGraphSet> ForwardAllocation::FindInputs(
     HloComputation* comp, CallGraph* call_graph) {
   ForwardAllocationGraph::MetaGraphSet deferred_inputs;
 
-  auto call_graph_node = call_graph->GetNode(comp);
-  auto& callsites = call_graph_node.caller_callsites();
+  const auto& call_graph_node = call_graph->GetNode(comp);
+  const auto& callsites = call_graph_node.caller_callsites();
   std::vector<int64_t> parameters_to_add;
   // In pipeliening, do not add a parameter as an input location, unless it was
   // a parameter/gradient accumulation buffer in the outer scope.

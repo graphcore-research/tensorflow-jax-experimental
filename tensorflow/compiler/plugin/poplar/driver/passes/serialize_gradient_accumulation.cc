@@ -390,7 +390,7 @@ Status ConvertGradientAccumulatorAdd(HloInstruction* inst) {
 
       // We can push a transpose through a concatenate if only a single
       // dimension is being transposed.
-      const std::vector<int64_t> permutation = transpose->dimensions();
+      const auto& permutation = transpose->dimensions();
       int64_t num_differences = 0;
       for (int64_t i = 0; i != permutation.size(); ++i) {
         num_differences += permutation[i] == i ? 0 : 1;

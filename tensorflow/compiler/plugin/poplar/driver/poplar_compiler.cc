@@ -207,6 +207,7 @@ limitations under the License.
 #include "tensorflow/core/platform/cpu_info.h"
 #include "tensorflow/core/platform/errors.h"
 #include "tensorflow/core/public/version.h"
+#include "tensorflow/core/util/version_info.h"
 
 namespace se = ::stream_executor;
 
@@ -959,7 +960,7 @@ StatusOr<std::string> GetFrameworkInfo(const HloModule* module,
   // tf info
   Json::Value tf_info;
   tf_info["Version"] = TF_VERSION_STRING;
-  tf_info["Githash"] = tf_git_version();
+  tf_info["Githash"] = TF_GIT_VERSION;
   tf_info["Cluster"] = module->name();
 
   // Determine the selection order - only valid is sharding is enabled
@@ -1211,7 +1212,8 @@ Status TransformHlo(HloModule* module, PoplarExecutor* poplar_executor,
       pass.AddPass<WhileLoopConditionSimplify>();
       pass.AddPass<CallOptimizer>();
       pass.AddPass<PipelineOptimizer>();
-      pass.AddPass<HloPassFix<WhileLoopToRepeatSimplify>>();
+      // TF 2.9 TODO: understand why it is creating trouble in `WhileLoop` unit tests?
+      // pass.AddPass<HloPassFix<WhileLoopToRepeatSimplify>>();
       if (poplar_executor->EnableGatherSimplifier()) {
         pass.AddPass<GatherSimplifier>();
       }
@@ -1949,7 +1951,7 @@ StatusOr<std::unique_ptr<PoplarExecutableCore>> CompileEngine(
                   is_module_which_can_stall,
                   TF_MAJOR_VERSION,
                   TF_MINOR_VERSION,
-                  tf_git_version(),
+                  TF_GIT_VERSION,
                   poplar::packageHash(),
                   replication_factor,
                   annotations.infeed_infos,
@@ -2041,7 +2043,7 @@ StatusOr<std::unique_ptr<PoplarExecutableCore>> CompileEngine(
               is_module_which_can_stall,
               TF_MAJOR_VERSION,
               TF_MINOR_VERSION,
-              tf_git_version(),
+              TF_GIT_VERSION,
               poplar::packageHash(),
               replication_factor,
               std::move(resources.annotations.infeed_infos),

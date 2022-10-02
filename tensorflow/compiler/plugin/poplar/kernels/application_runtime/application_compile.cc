@@ -12,6 +12,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+#include <utility>
+
 #include "tensorflow/compiler/jit/kernels/xla_ops.h"
 #include "tensorflow/compiler/plugin/poplar/driver/poplar_executable.h"
 #include "tensorflow/compiler/plugin/poplar/driver/poplar_platform.h"
@@ -23,6 +25,7 @@ limitations under the License.
 #include "tensorflow/core/framework/function.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/lib/core/status.h"
+#include "tensorflow/compiler/jit/flags.h"
 
 namespace tensorflow {
 
@@ -41,8 +44,13 @@ Status BuildCompilationCache(OpKernelContext* ctx, se::Platform* platform,
     return errors::InvalidArgument("No JIT device registered for IPU");
   }
 
+  XlaCompilationCache::Config cache_config(
+      GetMarkForCompilationPassFlags()->tf_xla_persistent_cache_directory,
+      GetMarkForCompilationPassFlags()->tf_xla_disable_strict_signature_checks,
+      GetMarkForCompilationPassFlags()->tf_xla_persistent_cache_prefix);
+
   *out_cache = new XlaCompilationCache(
-      client, DeviceType(registration->compilation_device_name));
+      std::move(cache_config), client, DeviceType(registration->compilation_device_name));
   return Status::OK();
 }
 

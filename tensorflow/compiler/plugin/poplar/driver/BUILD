@@ -267,6 +267,7 @@ poplar_cc_library(
         "//tensorflow/compiler/xla/service:while_loop_simplifier",
         "//tensorflow/compiler/xla/service:zero_sized_hlo_elimination",
         "//tensorflow/core/common_runtime:device_mgr",
+        "//tensorflow/core/util:version_info",
     ],
     alwayslink = True,
 )
@@ -324,6 +325,7 @@ poplar_cc_library(
         ":poplar_platform_id",
         "//tensorflow/compiler/plugin/poplar/driver/tools:hlo_hash",
         "//tensorflow/compiler/tf2xla:common",
+        "//tensorflow/core/util:version_info",
     ],
 )
 

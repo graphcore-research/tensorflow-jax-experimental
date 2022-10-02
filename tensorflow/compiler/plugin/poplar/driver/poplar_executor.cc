@@ -61,7 +61,7 @@ limitations under the License.
 #include "tensorflow/core/lib/io/path.h"
 #include "tensorflow/core/lib/strings/proto_serialization.h"
 #include "tensorflow/core/lib/strings/stringprintf.h"
-#include "tensorflow/core/public/version.h"
+#include "tensorflow/core/util/version_info.h"
 
 /*
  * TensorControl is a structure that maintains state about the location
@@ -1959,7 +1959,7 @@ Status PoplarExecutor::ConfigurePoplarDevice(const IpuOptions& cfg) {
   target_hash.push_back(GetConfigHash(current_config_));
 
   // Generate compiler hashes
-  target_hash.push_back(std::hash<string>()(tf_git_version()));
+  target_hash.push_back(std::hash<string>()(TF_GIT_VERSION));
   target_hash.push_back(std::hash<string>()(poplar::packageHash()));
 
   // Get environment PoplarXlaFlags hash

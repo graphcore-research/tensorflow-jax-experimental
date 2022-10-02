@@ -1920,7 +1920,7 @@ Status PoplarAlgebraicSimplifierVisitor::HandleBroadcast(
     HloInstruction* broadcast) {
   HloInstruction* operand;
   CHECK(Match(broadcast, m::Broadcast(m::Op(&operand))));
-  auto dims = broadcast->dimensions();
+  auto dims = xla::to_vector(broadcast->dimensions());
   // A degenerate broadcast of a reshape that does not change the number of
   // elements can be replaced by a reshape.
   if (std::is_sorted(dims.begin(), dims.end()) &&
@@ -3552,9 +3552,9 @@ Status PoplarAlgebraicSimplifierVisitor::HandleReduce(HloInstruction* hlo) {
       *function == *arg->to_apply()) {
     // Create a new reduce with the combined reduction dimensions of both
     // reduces.
-    std::vector<int64_t> arg_dims = arg->dimensions();
+    std::vector<int64_t> arg_dims = xla::to_vector(arg->dimensions());
     absl::c_sort(arg_dims);
-    std::vector<int64_t> reduce_dims = reduce->dimensions();
+    std::vector<int64_t> reduce_dims = xla::to_vector(reduce->dimensions());
     absl::c_sort(reduce_dims);
     // Transform reduce_dims to the same rank as the operand of the operand.
     for (int64_t arg_dim : arg_dims) {

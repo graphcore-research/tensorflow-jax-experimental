@@ -2674,7 +2674,7 @@ TEST_F(PoplarAlgebraicSimplifierTest, BroadcastAndReshape_1_3x2x1_6x1x1x1) {
 
   EXPECT_THAT(computation->root_instruction(),
               GmockMatch(m::Broadcast(m::Parameter(0))));
-  const std::vector<int64_t> broadcast_dims =
+  const auto& broadcast_dims =
       computation->root_instruction()->dimensions();
   EXPECT_EQ(1, broadcast_dims.size());
   EXPECT_THAT(broadcast_dims[0], ::testing::AnyOf(1, 2, 3));

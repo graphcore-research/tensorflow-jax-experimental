@@ -424,7 +424,7 @@ StatusOr<HloInstruction*> OptimizeDotOfReorderContractingDims(
   lhs = lhs->mutable_operand(0);
 
   // Check that the transpose only permutes the contracting dims.
-  const std::vector<int64_t>& transpose_dims = transpose->dimensions();
+  const auto& transpose_dims = transpose->dimensions();
   for (int64_t i = 0; i < static_cast<int64_t>(transpose_dims.size()); ++i) {
     if (transpose_dims[i] != i &&
         !absl::c_linear_search(lhs_contracting_dims, i)) {

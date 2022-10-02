@@ -335,7 +335,7 @@ void RegisterTransposeExtensions(HloOpcode opcode) {
     if (permutation) {
       // Permute the dimensions according to the transpose.
       new_permutation = std::vector<int64_t>(permutation->size());
-      const std::vector<int64_t> transpose_permutation = user->dimensions();
+      const auto& transpose_permutation = user->dimensions();
       for (int64_t d = 0; d != permutation->size(); ++d) {
         (*new_permutation)[d] = (*permutation)[transpose_permutation[d]];
       }

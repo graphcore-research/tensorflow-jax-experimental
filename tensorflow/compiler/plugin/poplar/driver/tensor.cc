@@ -1224,7 +1224,7 @@ StatusOr<DriverTensor> PadTensor(const PaddingConfig& cfg,
 }
 
 StatusOr<DriverTensor> ReverseTensor(const DriverTensor& in,
-                                     const std::vector<int64_t>& dimensions) {
+                                     absl::Span<const int64_t> dimensions) {
   DriverTensor out = in;
   if (in.numElements() > 0) {
     for (int64_t d : dimensions) {
@@ -1236,7 +1236,7 @@ StatusOr<DriverTensor> ReverseTensor(const DriverTensor& in,
 
 StatusOr<DriverTensor> BroadcastTensor(const DriverTensor& in,
                                        const xla::Shape& out,
-                                       const std::vector<int64_t>& dimensions) {
+                                       absl::Span<const int64_t> dimensions) {
   if (PoplarShapeMatchesXLAShape(in, out)) {
     return in;
   }

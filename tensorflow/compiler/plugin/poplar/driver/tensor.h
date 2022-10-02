@@ -176,11 +176,11 @@ StatusOr<DriverTensor> PadTensor(const PaddingConfig& cfg,
                                  const DriverTensor& pad);
 
 StatusOr<DriverTensor> ReverseTensor(const DriverTensor& in,
-                                     const std::vector<int64_t>& dimensions);
+                                     absl::Span<const int64_t> dimensions);
 
 StatusOr<DriverTensor> BroadcastTensor(
     const DriverTensor& in, const xla::Shape& out,
-    const std::vector<int64_t>& dimensions = {});
+    absl::Span<const int64_t> dimensions = {});
 
 Status AddOutput(TensorMap& map, const HloInstruction* inst, int64_t n,
                  const TensorOrRemoteBuffer& torb);
