@@ -78,6 +78,8 @@ class BaseVisitor : public DfsHloVisitor {
 
   Status HandleAllToAll(HloInstruction* hlo) override;
 
+  Status HandleOptimizationBarrier(HloInstruction* hlo) override;
+
   Status HandleAddDependency(HloInstruction* hlo) override;
 
   Status Postprocess(HloInstruction* hlo) override;
@@ -159,7 +161,6 @@ class BaseVisitor : public DfsHloVisitor {
   UNIMPLEMENTED(HandleAllGatherStart)
   UNIMPLEMENTED(HandleAllGatherDone)
 
-  UNIMPLEMENTED(HandleOptimizationBarrier)
   UNIMPLEMENTED(HandleAsyncStart)
   UNIMPLEMENTED(HandleAsyncUpdate)
   UNIMPLEMENTED(HandleAsyncDone)

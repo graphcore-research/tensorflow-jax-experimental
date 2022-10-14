@@ -427,6 +427,40 @@ class DataflowAnalysisBufferVisitor : public DfsHloVisitorWithDefault {
         inst, /*kind=*/BufferUseKind::USE_ALIAS_READ_ONLY);
   }
 
+  Status HandleOptimizationBarrier(HloInstruction* inst) override {
+    const auto kind = BufferUseKind::USE_ALIAS_READ_ONLY;
+    const Shape& shape = inst->shape();
+    const bool is_tuple = shape.IsTuple();
+    // TODO: relax checks?
+    CHECK(is_tuple);
+    CHECK_EQ(inst->operand_count(), 1);
+
+    if (is_tuple && ShapeUtil::IsEmptyTuple(shape)) {
+      analysis_->SetInstructionBufferSet(inst,
+                                         InstructionPoplarBufferSet(shape));
+      return Status::OK();
+    }
+    // Single `optimization_barrier` operand normally?
+    for (int64_t i = 0; i != inst->operand_count(); ++i) {
+      HloInstruction* operand = inst->mutable_operand(i);
+      
+      for (auto& indexed_shape : ShapeUtil::GetLeafShapes(operand->shape())) {  
+        const HloPoplarPosition input_position{operand, indexed_shape.index};
+        const ShapeIndex output_index = indexed_shape.index;
+        // No push front index `i`?
+        const HloPoplarPosition output_position{inst, output_index};
+
+        HloPoplarBufferSet buffer_set = analysis_->GetBufferSet(input_position);
+        buffer_set.AddNewBufferUse(kind);
+        VLOG(3) << "Forwarding buffer set " << buffer_set << " from "
+                << input_position << " to " << output_position;
+        analysis_->SetInstructionBufferSetOutput(inst, output_index,
+                                                 buffer_set);
+      }
+    }
+    return Status::OK();
+  }
+
 #define HANDLE_AS_SIMPLE_INPLACE_READ_WRITE(Name)                             \
   Status Name(HloInstruction* inst) override {                                \
     return HandleSimpleInplace(inst,                                          \

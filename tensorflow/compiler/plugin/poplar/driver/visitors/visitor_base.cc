@@ -257,6 +257,27 @@ Status BaseVisitor::HandleGetTupleElement(HloInstruction* inst) {
   return AddSequenceForInstruction(inst, seq);
 }
 
+Status BaseVisitor::HandleOptimizationBarrier(HloInstruction* inst) {
+  VLOG(1) << "Processing " << inst->name();
+  poplar::DebugNameAndId debug_name_and_id = GetDebugNameAndId(inst);
+  DriverProgramSequence seq(debug_name_and_id);
+
+  TF_ASSIGN_OR_RETURN(
+      TensorVectors output_tensors,
+      FindInplaceOutputTensors(tensor_map, resources_, inst, seq,
+                               debug_name_and_id, /*expand_aliasing=*/false));
+  // Single input/output tuple.
+  CHECK_EQ(output_tensors.size(), 1);
+  CHECK_EQ(output_tensors[0].size(), CountShapes(inst->shape()));
+  
+  // TODO: get a better understanding of this mapping?
+  for (size_t i = 0; i < output_tensors[0].size(); i++) {
+    DriverTensor out;
+    TF_CHECK_OK(AddOutputTensor(tensor_map, inst, i, output_tensors[0][i]));
+  }
+  return AddSequenceForInstruction(inst, seq);
+}
+
 Status BaseVisitor::HandleFusion(HloInstruction* inst) {
   VLOG(1) << "Processing " << inst->ToString();
   auto& graph = GetGraph(resources_, inst);

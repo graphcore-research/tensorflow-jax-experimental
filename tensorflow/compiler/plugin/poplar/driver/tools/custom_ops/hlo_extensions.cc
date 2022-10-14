@@ -315,6 +315,18 @@ void RegisterGetTupleElementExtensions(HloOpcode opcode) {
 REGISTER_HLO_INST_EXTENSIONS(kGetTupleElement,
                              RegisterGetTupleElementExtensions);
 
+void RegisterOptimizationBarrierExtensions(HloOpcode opcode) {
+  auto do_find_consumers = [](const HloInstruction* user,
+                              FindConsumersExtensionParams params) {
+    FindConsumersExtensionResults result{/*do_find_consumers=*/true, user,
+                                         params.index, params.permutation};
+    return result;
+  };
+  RegisterHloInstructionExtension<FindConsumersExtension>(opcode,
+                                                          do_find_consumers);
+}
+REGISTER_HLO_INST_EXTENSIONS(kOptimizationBarrier, RegisterOptimizationBarrierExtensions);
+
 void RegisterReshapeExtensions(HloOpcode opcode) {
   auto do_find_consumers = [](const HloInstruction* user,
                               FindConsumersExtensionParams params) {
@@ -511,6 +523,16 @@ REGISTER_HLO_INST_EXTENSIONS(kGetTupleElement, [](HloOpcode opcode) {
       opcode, [](const HloInstruction* inst) {
         return HloPoplarInplaceDescription(
             HloInstructionType::kInplaceGetTupleElement,
+            /*inplace_operands=*/{0}, /*allow_non_inplace=*/false);
+      });
+});
+
+REGISTER_HLO_INST_EXTENSIONS(kOptimizationBarrier, [](HloOpcode opcode) {
+  RegisterHloInstructionExtension<InplaceExtension>(
+      opcode, [](const HloInstruction* inst) {
+        // Optimization barrier is a unary op, on tuple input.
+        return HloPoplarInplaceDescription(
+            HloInstructionType::kInplaceReadOnly,
             /*inplace_operands=*/{0}, /*allow_non_inplace=*/false);
       });
 });
