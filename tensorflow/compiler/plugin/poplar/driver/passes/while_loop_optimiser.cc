@@ -533,7 +533,9 @@ bool HasEnoughDotProducts(const AllocationGroup& group) {
 
 }  // namespace
 
-StatusOr<bool> PoplarWhileLoopRemapper::Run(HloModule* module) {
+StatusOr<bool> PoplarWhileLoopRemapper::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
   TF_ASSIGN_OR_RETURN(auto allocation_groups,
                       AllocationGroups::CreateAllocationGroups(module));
@@ -576,9 +578,11 @@ Status PoplarWhileLoopOptimiser::PropagateNewShapes(
   return Status::OK();
 }
 
-StatusOr<bool> PoplarWhileLoopOptimiser::Run(HloModule* module) {
+StatusOr<bool> PoplarWhileLoopOptimiser::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
-  for (auto* comp : module->MakeComputationPostOrder()) {
+  for (auto* comp : module->MakeComputationPostOrder(execution_threads)) {
     for (auto* inst : comp->MakeInstructionPostOrder()) {
       if (inst->opcode() != HloOpcode::kWhile) {
         continue;

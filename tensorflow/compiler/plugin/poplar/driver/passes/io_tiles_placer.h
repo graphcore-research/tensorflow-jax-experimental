@@ -45,7 +45,10 @@ class IoTilesPlacer : public HloModulePass {
 
   absl::string_view name() const override { return "io-tiles-placer"; }
 
-  StatusOr<bool> Run(HloModule* module) override;
+  using HloPassInterface::Run;
+  StatusOr<bool> Run(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
   double AvailableMemoryProportion() const {
     return available_memory_proportion;

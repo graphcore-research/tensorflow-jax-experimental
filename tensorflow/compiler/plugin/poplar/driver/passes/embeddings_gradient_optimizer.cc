@@ -691,7 +691,9 @@ StatusOr<bool> ReplacePipelineGradientAccumulator(
 
 }  // namespace
 
-StatusOr<bool> EmbeddingsGradientOptimizer::Run(HloModule* module) {
+StatusOr<bool> EmbeddingsGradientOptimizer::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
   VLOG(2) << "Before the EmbeddingsGradientOptimizer:";
   XLA_VLOG_LINES(2, module->ToString());
@@ -701,7 +703,7 @@ StatusOr<bool> EmbeddingsGradientOptimizer::Run(HloModule* module) {
   std::list<Candidate> candidates;
   std::list<PipelineCandidate> pipeline_candidates;
 
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

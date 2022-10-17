@@ -28,10 +28,11 @@ namespace xla {
 namespace poplarplugin {
 
 Status ComputationFlattener::FindRecomputableComputations(
-    const HloModule* module) {
+    const HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   // Functions in forward pipeline stages when training will be recomputed -
   // mark them as recomputable and therefore should not be inlined.
-  TF_ASSIGN_OR_RETURN(auto pipelines, GetPipelines(module));
+  TF_ASSIGN_OR_RETURN(auto pipelines, GetPipelines(module, execution_threads));
   for (HloInstruction* pipeline : pipelines) {
     TF_ASSIGN_OR_RETURN(const auto recomputation_mode,
                         GetPipelineRecomputationMode(pipeline));
@@ -133,8 +134,11 @@ Status ComputationFlattener::GenerateFunctionSet(const CallGraphNode& node) {
   return Status::OK();
 }
 
-StatusOr<bool> ComputationFlattener::Run(HloModule* module) {
-  TF_RETURN_IF_ERROR(FindRecomputableComputations(module));
+StatusOr<bool> ComputationFlattener::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  // TODO: use execution_threads
+  TF_RETURN_IF_ERROR(FindRecomputableComputations(module, execution_threads));
 
   std::unique_ptr<CallGraph> call_graph = CallGraph::Build(module);
 

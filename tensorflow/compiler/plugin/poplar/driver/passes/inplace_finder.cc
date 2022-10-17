@@ -390,7 +390,9 @@ StatusOr<bool> InsertCopies(InplacingState& state) {
 
 }  // namespace
 
-StatusOr<bool> InplaceFinder::Run(HloModule* module) {
+StatusOr<bool> InplaceFinder::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   // Remove situation when sharing constant between inplace ops will prevent
   // inplace finder from inplacing them. The simpliest example would be
   // (pseudocode):
@@ -415,7 +417,7 @@ StatusOr<bool> InplaceFinder::Run(HloModule* module) {
 
   TF_ASSIGN_OR_RETURN(auto dataflow, HloPoplarDataflowAnalysis::Run(
                                          module, annotations, *call_graph));
-  for (auto* comp : module->MakeComputationPostOrder()) {
+  for (auto* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (!AllowedComputation(*call_graph, comp)) {
       continue;
     }

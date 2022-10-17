@@ -750,7 +750,9 @@ StatusOr<bool> ForwardAllocation::FindLayoutDependentTargets(
 ForwardAllocation::ForwardAllocation(CompilerAnnotations& annotations)
     : tensor_allocation_map(annotations.tensor_allocation_map) {}
 
-StatusOr<bool> ForwardAllocation::Run(HloModule* module) {
+StatusOr<bool> ForwardAllocation::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   std::unique_ptr<CallGraph> call_graph = CallGraph::Build(module);
   bool found_target = false;
 
@@ -761,7 +763,7 @@ StatusOr<bool> ForwardAllocation::Run(HloModule* module) {
     ops_with_layout.insert(ta.second.tgt);
   }
 
-  for (const auto& computation : module->MakeComputationPostOrder()) {
+  for (const auto& computation : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(computation)) {
       continue;
     }

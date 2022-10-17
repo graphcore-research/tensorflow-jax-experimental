@@ -106,10 +106,12 @@ StatusOr<bool> ScheduleSendRecvs(HloComputation* comp,
 
 }  // namespace
 
-StatusOr<bool> HostComputeScheduleOptimizer::Run(HloModule* module) {
+StatusOr<bool> HostComputeScheduleOptimizer::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
 
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       // Optimization: Popops fusion computations cannot have Send/Recv ops.
       continue;

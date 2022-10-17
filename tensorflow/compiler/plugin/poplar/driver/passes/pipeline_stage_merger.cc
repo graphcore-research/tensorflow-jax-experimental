@@ -139,8 +139,10 @@ StatusOr<bool> MergeLastForwardAndBackwardStage(
   return true;
 }
 
-StatusOr<bool> PipelineStageMerger::Run(HloModule* module) {
-  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module));
+StatusOr<bool> PipelineStageMerger::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module, execution_threads));
   if (pipeline_ops.empty()) {
     // No pipeline ops found - nothing to fix.
     return false;

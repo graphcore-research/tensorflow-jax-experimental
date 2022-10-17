@@ -1001,7 +1001,9 @@ StatusOr<bool> HloMatcher::FindMatch(HloComputation* computation,
   return found_match;
 }
 
-StatusOr<bool> HloMatcher::Run(HloModule* module) {
+StatusOr<bool> HloMatcher::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool matched = false;
 
   if (root_computation_only_) {
@@ -1009,7 +1011,7 @@ StatusOr<bool> HloMatcher::Run(HloModule* module) {
     TF_ASSIGN_OR_RETURN(matched, MatchPatternStart(comp));
   } else {
     // Copy list of computations as we will be introducing new ones
-    std::vector<HloComputation*> comps = module->MakeComputationPostOrder();
+    std::vector<HloComputation*> comps = module->MakeComputationPostOrder(execution_threads);
     for (auto* comp : comps) {
       if (!comp->IsFusionComputation() && !IsPopOpsFusion(comp)) {
         TF_ASSIGN_OR_RETURN(bool pattern_matched, MatchPatternStart(comp));

@@ -43,14 +43,16 @@ bool ShouldRecomputeInstruction(const HloInstruction* inst) {
 }
 }  // namespace
 
-StatusOr<bool> SuggestRecompute::Run(HloModule* module) {
+StatusOr<bool> SuggestRecompute::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool result = false;
   std::unique_ptr<CallGraph> call_graph = CallGraph::Build(module);
 
   // Do not suggest recomputation for resource updates or any computations which
   // they call.
   absl::flat_hash_set<const HloComputation*> no_recomputation_computations;
-  for (auto comp : module->computations()) {
+  for (auto comp : module->computations(execution_threads)) {
     for (auto inst : comp->instructions()) {
       if (IsResourceUpdate(inst)) {
         TF_ASSIGN_OR_RETURN(absl::flat_hash_set<HloComputation*> called_comps,
@@ -61,7 +63,7 @@ StatusOr<bool> SuggestRecompute::Run(HloModule* module) {
     }
   }
 
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

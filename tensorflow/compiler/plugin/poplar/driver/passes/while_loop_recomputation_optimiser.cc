@@ -505,14 +505,16 @@ StatusOr<bool> ReplaceInstructions(
  * -> All dynamic-slice operations need to be in the same computation to be
  *    recomputable.
  */
-StatusOr<bool> PoplarWhileLoopRecomputationOptimiser::Run(HloModule* module) {
+StatusOr<bool> PoplarWhileLoopRecomputationOptimiser::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before " << name() << ":";
   XLA_VLOG_LINES(2, module->ToString(HloPrintOptions::ShortParsable()));
 
   bool changed = false;
 
   absl::flat_hash_map<HloInstruction*, HloInstruction*> replaced;
-  for (auto* const comp : module->MakeComputationPostOrder()) {
+  for (auto* const comp : module->MakeComputationPostOrder(execution_threads)) {
     for (auto* const inst : comp->MakeInstructionPostOrder()) {
       if (inst->opcode() != HloOpcode::kWhile) {
         continue;

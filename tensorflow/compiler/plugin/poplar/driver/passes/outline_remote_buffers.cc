@@ -450,9 +450,10 @@ bool ShouldOutlineFunctions(const Functions& functions) {
 }  // namespace
 
 SingleShardIsomorphicFunctions OutlineRemoteBuffers::GetFunctionsForOutlining(
-    HloModule* module) {
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   SingleShardIsomorphicFunctions isomorphic_functions;
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }
@@ -492,12 +493,14 @@ SingleShardIsomorphicFunctions OutlineRemoteBuffers::GetFunctionsForOutlining(
   return isomorphic_functions;
 }
 
-StatusOr<bool> OutlineRemoteBuffers::Run(HloModule* module) {
+StatusOr<bool> OutlineRemoteBuffers::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before OutlineRemoteBuffers:";
   XLA_VLOG_LINES(2, module->ToString(HloPrintOptions::ShortParsable()));
   bool changed = false;
 
-  SingleShardIsomorphicFunctions functions = GetFunctionsForOutlining(module);
+  SingleShardIsomorphicFunctions functions = GetFunctionsForOutlining(module, execution_threads);
   for (auto& pair : functions) {
     TF_ASSIGN_OR_RETURN(bool changed_funcs, OutlineIntoFunctions(*pair.second));
     changed |= changed_funcs;

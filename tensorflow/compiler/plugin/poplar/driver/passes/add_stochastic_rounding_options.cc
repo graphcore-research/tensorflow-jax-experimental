@@ -209,10 +209,12 @@ AddStochasticRoundingOptions::AddStochasticRoundingOptions(
           default_stochastic_rounding_behaviour),
       enable_experimental_prng_stability_(enable_experimental_prng_stability) {}
 
-StatusOr<bool> AddStochasticRoundingOptions::Run(HloModule* module) {
+StatusOr<bool> AddStochasticRoundingOptions::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool modified = false;
 
-  for (auto* comp : module->computations()) {
+  for (auto* comp : module->computations(execution_threads)) {
     for (auto* inst : comp->instructions()) {
       TF_ASSIGN_OR_RETURN(bool added_option,
                           ConfigureStochasticRoundingOption(inst));

@@ -448,13 +448,15 @@ StatusOr<bool> RemoteParameterParallelCombiner::RunOnComputation(
   return changed;
 }
 
-StatusOr<bool> RemoteParameterParallelCombiner::Run(HloModule* module) {
+StatusOr<bool> RemoteParameterParallelCombiner::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before RemoteParameterParallelCombiner:";
   XLA_VLOG_LINES(2, module->ToString());
 
   bool changed = false;
 
-  for (auto* comp : module->MakeComputationPostOrder()) {
+  for (auto* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

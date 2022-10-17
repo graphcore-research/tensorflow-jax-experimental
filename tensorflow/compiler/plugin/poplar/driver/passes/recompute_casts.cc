@@ -45,7 +45,9 @@ StatusOr<absl::flat_hash_set<const HloComputation*>> FindResourceUpdateCallees(
 }
 }  // namespace
 
-StatusOr<bool> RecomputeCasts::Run(HloModule* module) {
+StatusOr<bool> RecomputeCasts::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before RecomputeCasts:";
   XLA_VLOG_LINES(2, module->ToString());
 
@@ -54,7 +56,7 @@ StatusOr<bool> RecomputeCasts::Run(HloModule* module) {
   TF_ASSIGN_OR_RETURN(const auto resource_update_computations,
                       FindResourceUpdateCallees(module));
 
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     const auto recomputation_blocked =
         IsPopOpsFusion(comp) || resource_update_computations.contains(comp);
     if (recomputation_blocked) {

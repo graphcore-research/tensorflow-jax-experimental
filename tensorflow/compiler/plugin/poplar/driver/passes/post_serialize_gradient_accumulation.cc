@@ -174,7 +174,10 @@ StatusOr<bool> AddAllocationControlDependencies(HloModule* module) {
 }
 }  // namespace
 
-StatusOr<bool> PostSerializeGradientAccumulation::Run(HloModule* module) {
+StatusOr<bool> PostSerializeGradientAccumulation::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  // TODO: use `execution_threads`
   VLOG(2) << "Before PostSerializeGradientAccumulation:";
   XLA_VLOG_LINES(2, module->ToString());
   TF_ASSIGN_OR_RETURN(const bool inlined_accumulators,

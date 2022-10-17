@@ -20,12 +20,14 @@ limitations under the License.
 namespace xla {
 namespace poplarplugin {
 
-StatusOr<bool> MarkReplicaIdenticalInstructions::Run(HloModule* module) {
+StatusOr<bool> MarkReplicaIdenticalInstructions::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool modified = false;
 
   TF_RETURN_IF_ERROR(analysis_.Run(module));
 
-  for (auto* comp : module->computations()) {
+  for (auto* comp : module->computations(execution_threads)) {
     if (!analysis_.Analysed(comp)) {
       continue;
     }

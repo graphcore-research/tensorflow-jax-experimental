@@ -47,10 +47,12 @@ class ReservedNamespaceNameUniquer : public NameUniquer {
 };
 }  // namespace
 
-StatusOr<bool> HloComputationNameUniquify::Run(HloModule* module) {
+StatusOr<bool> HloComputationNameUniquify::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
   ReservedNamespaceNameUniquer rnnu;
-  for (auto* comp : module->computations()) {
+  for (auto* comp : module->computations(execution_threads)) {
     auto name_before = comp->name();
     comp->UniquifyName(&rnnu);
     auto name_after = comp->name();

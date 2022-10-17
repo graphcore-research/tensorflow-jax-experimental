@@ -126,7 +126,10 @@ class GradientAccumulationBuffersOffload : public HloModulePass {
     return "gradient-accumulation-buffers-offload";
   }
 
-  StatusOr<bool> Run(HloModule* module) override;
+  using HloPassInterface::Run;
+  StatusOr<bool> Run(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
  private:
   StatusOr<bool> ShouldOffloadInPipeline(HloInstruction* const pipeline_op);

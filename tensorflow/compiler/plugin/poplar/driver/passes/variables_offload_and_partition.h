@@ -120,7 +120,10 @@ class VariablesOffloadAndPartition : public HloModulePass {
     return "variables-offload-and-partition";
   }
 
-  StatusOr<bool> Run(HloModule* module) override;
+  using HloPassInterface::Run;
+  StatusOr<bool> Run(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
  private:
   // Optimize an instruction which contains a resource update.

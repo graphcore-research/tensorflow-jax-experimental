@@ -181,7 +181,9 @@ absl::optional<MLType> GetTypeFromInstruction(const HloInstruction* inst) {
 }
 }  // namespace
 
-StatusOr<bool> ConvolutionClassifier::Run(HloModule* module) {
+StatusOr<bool> ConvolutionClassifier::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   ConvClassification classifications;
 
   auto* flattened = annotations_.flattened_module.get();
@@ -192,7 +194,7 @@ StatusOr<bool> ConvolutionClassifier::Run(HloModule* module) {
 
   std::map<HloInstruction*, std::pair<int, int>> operands;
 
-  for (auto comp : flattened->MakeComputationPostOrder()) {
+  for (auto comp : flattened->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

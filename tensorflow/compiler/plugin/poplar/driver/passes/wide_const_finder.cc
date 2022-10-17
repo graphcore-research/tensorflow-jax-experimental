@@ -28,8 +28,10 @@ namespace poplarplugin {
 
 WideConstFinder::WideConstFinder() {}
 
-StatusOr<bool> WideConstFinder::Run(HloModule* module) {
-  std::vector<HloComputation*> comps = module->MakeComputationPostOrder();
+StatusOr<bool> WideConstFinder::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  std::vector<HloComputation*> comps = module->MakeComputationPostOrder(execution_threads);
 
   for (auto* comp : comps) {
     if (IsPopOpsFusion(comp)) {

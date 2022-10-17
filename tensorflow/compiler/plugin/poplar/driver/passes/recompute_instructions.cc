@@ -472,12 +472,13 @@ struct ConvNormMatcher : public Matcher {
 };
 
 StatusOr<absl::flat_hash_set<HloComputation*>> GetComputationsToSkip(
-    HloModule* module) {
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   // Pipelining has its own recomputation methods - prevent this pass from
   // interefering.
   std::unique_ptr<CallGraph> call_graph = CallGraph::Build(module);
   absl::flat_hash_set<HloComputation*> computations_to_skip;
-  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module));
+  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module, execution_threads));
   for (HloInstruction* pipeline_op : pipeline_ops) {
     TF_ASSIGN_OR_RETURN(
         absl::flat_hash_set<HloComputation*> pipeline_comps,
@@ -492,7 +493,9 @@ StatusOr<absl::flat_hash_set<HloComputation*>> GetComputationsToSkip(
 RecomputeInstructions::RecomputeInstructions(bool allow_recompute)
     : allow_recompute_(allow_recompute) {}
 
-StatusOr<bool> RecomputeInstructions::Run(HloModule* module) {
+StatusOr<bool> RecomputeInstructions::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   if (!allow_recompute_) {
     return false;
   }
@@ -502,7 +505,7 @@ StatusOr<bool> RecomputeInstructions::Run(HloModule* module) {
   std::list<HloComputation*> changed_comps;
 
   TF_ASSIGN_OR_RETURN(absl::flat_hash_set<HloComputation*> computations_to_skip,
-                      GetComputationsToSkip(module));
+                      GetComputationsToSkip(module, execution_threads));
 
   const std::array<std::unique_ptr<Matcher>, 2> matchers{
       // Try catch the cases of Conv->Norm->Non-Linearity that we can.
@@ -511,7 +514,7 @@ StatusOr<bool> RecomputeInstructions::Run(HloModule* module) {
       // If not try and get cases of just Conv/Norm.
       absl::make_unique<ConvNormMatcher>()};
 
-  for (auto* comp : module->MakeComputationPostOrder()) {
+  for (auto* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp) || comp->instruction_count() < 4 ||
         computations_to_skip.contains(comp)) {
       continue;

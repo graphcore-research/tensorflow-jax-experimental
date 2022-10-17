@@ -89,9 +89,11 @@ StatusOr<bool> HandleAllReduce(HloInstruction* all_reduce,
 AllReduceSimplifier::AllReduceSimplifier(uint32 replication_factor)
     : replication_factor_(replication_factor) {}
 
-StatusOr<bool> AllReduceSimplifier::Run(HloModule* module) {
+StatusOr<bool> AllReduceSimplifier::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
-  for (auto* computation : module->MakeComputationPostOrder()) {
+  for (auto* computation : module->MakeComputationPostOrder(execution_threads)) {
     for (auto* instruction : computation->MakeInstructionPostOrder()) {
       if (instruction->opcode() == HloOpcode::kAllReduce) {
         TF_ASSIGN_OR_RETURN(bool inst_changed,

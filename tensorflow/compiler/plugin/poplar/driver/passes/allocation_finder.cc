@@ -557,13 +557,15 @@ void AllocationFinder::FindAllocation(const TensorLocation& location,
   completed.insert(location);
 }
 
-StatusOr<bool> AllocationFinder::Run(HloModule* module) {
+StatusOr<bool> AllocationFinder::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   call_graph = CallGraph::Build(module);
   if (!call_graph->IsFlattened()) {
     return FailedPrecondition("Call graph must be flattened.");
   }
 
-  for (const auto& comp : module->MakeComputationPostOrder()) {
+  for (const auto& comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

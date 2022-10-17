@@ -207,10 +207,12 @@ StatusOr<bool> TrySimplifyLoopCondition(HloInstruction* while_inst) {
 
 WhileLoopConditionSimplify::WhileLoopConditionSimplify() {}
 
-StatusOr<bool> WhileLoopConditionSimplify::Run(HloModule* module) {
+StatusOr<bool> WhileLoopConditionSimplify::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
   std::vector<HloInstruction*> while_insts;
-  for (auto* comp : module->MakeComputationPostOrder()) {
+  for (auto* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

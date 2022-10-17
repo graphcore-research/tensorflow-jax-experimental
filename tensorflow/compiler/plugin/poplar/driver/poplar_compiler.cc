@@ -358,7 +358,7 @@ bool IsCacheable(const HloModule* module) {
 
 bool HasPipeliningWithDefaultSharding(const HloModule* module) {
   // Check if there are any pipelines.
-  auto pipeline_ops_or = GetPipelines(module);
+  auto pipeline_ops_or = GetPipelines(module, {});
   if (!pipeline_ops_or.ok()) {
     LOG(FATAL) << pipeline_ops_or.status();
   }
@@ -392,7 +392,7 @@ StatusOr<bool> ModuleExecutionCanStall(const HloModule* module,
     return true;
   }
 
-  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module));
+  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module, {}));
   switch (pipeline_ops.size()) {
     case 0: {
       return false;

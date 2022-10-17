@@ -168,7 +168,10 @@ ChooseBestIpuScheduler::ChooseBestIpuScheduler(
       annotations_(annotations),
       memory_estimator_(memory_estimator) {}
 
-StatusOr<bool> ChooseBestIpuScheduler::Run(HloModule* module) {
+StatusOr<bool> ChooseBestIpuScheduler::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  // TODO: use execution_threads
   TF_ASSIGN_OR_RETURN(auto analysis,
                       HloPoplarDataflowAnalysis::Run(module, annotations_));
   TF_ASSIGN_OR_RETURN(
@@ -176,21 +179,24 @@ StatusOr<bool> ChooseBestIpuScheduler::Run(HloModule* module) {
       BestIpuSchedule(module, *analysis, algorithms_, memory_estimator_));
 
   IpuScheduler scheduler(algorithm, annotations_);
-  return scheduler.Run(module, std::move(analysis));
+  return scheduler.Run(module, execution_threads, std::move(analysis));
 }
 
 IpuScheduler::IpuScheduler(IpuSchedulerAlgorithm algorithm,
                            const CompilerAnnotations* annotations)
     : algorithm_(std::move(algorithm)), annotations_(annotations) {}
 
-StatusOr<bool> IpuScheduler::Run(HloModule* module) {
+StatusOr<bool> IpuScheduler::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   TF_ASSIGN_OR_RETURN(auto dataflow_analysis,
                       HloPoplarDataflowAnalysis::Run(module, annotations_));
-  return Run(module, std::move(dataflow_analysis));
+  return Run(module, execution_threads, std::move(dataflow_analysis));
 }
 
 StatusOr<bool> IpuScheduler::Run(
     HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads,
     std::unique_ptr<HloPoplarDataflowAnalysis> dataflow_analysis) {
   if (!algorithm_) {
     return xla::FailedPrecondition("No IpuSchedulerAlgorithm provided");

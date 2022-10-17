@@ -93,12 +93,14 @@ StatusOr<bool> AddCopiesForResourceUpdate(HloInstruction* resource_update) {
 }
 }  // namespace
 
-StatusOr<bool> CopyInserter::Run(HloModule* module) {
+StatusOr<bool> CopyInserter::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before CopyInserter:";
   XLA_VLOG_LINES(2, module->ToString(HloPrintOptions::ShortParsable()));
 
   bool changed = false;
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

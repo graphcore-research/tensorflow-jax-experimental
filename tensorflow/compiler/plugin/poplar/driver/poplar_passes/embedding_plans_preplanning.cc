@@ -278,9 +278,12 @@ Status PopulatePlans(const InputToSliceUsersMap& user_map,
  * 3. Translate the instructions back into the module to make sure each
  * instruction has a plan.
  */
-StatusOr<bool> EmbeddingPlansPreplanning::Run(HloModule* module) {
+StatusOr<bool> EmbeddingPlansPreplanning::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Preplanning embedding operations.";
 
+  // TODO: use execution threads?
   absl::flat_hash_map<const HloInstruction*, popops::SlicePlan> slice_plans;
   HloComputation* entry_computation =
       resources_.annotations.flattened_module->entry_computation();

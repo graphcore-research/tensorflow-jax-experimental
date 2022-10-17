@@ -32,7 +32,10 @@ class ExpressionOutliner : public HloModulePass {
   explicit ExpressionOutliner(int64_t maximum_num_elements = -1);
   absl::string_view name() const override { return "expression-outliner"; }
 
-  StatusOr<bool> Run(HloModule* module);
+  using HloPassInterface::Run;
+  StatusOr<bool> Run(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads);
 
  private:
   StatusOr<bool> ModuleExpressionOutliner(HloComputation* comp);

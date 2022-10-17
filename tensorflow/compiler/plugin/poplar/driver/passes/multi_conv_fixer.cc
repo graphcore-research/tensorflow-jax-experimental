@@ -165,13 +165,15 @@ Status MultiConvFixer::FixMultiConv(HloInstruction* multi_conv_op) {
   return Status::OK();
 }
 
-StatusOr<bool> MultiConvFixer::Run(HloModule* module) {
+StatusOr<bool> MultiConvFixer::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before MultiConvFixer:";
   XLA_VLOG_LINES(2, module->ToString());
 
   // Find all the multi convs.
   std::vector<HloInstruction*> multi_convs;
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

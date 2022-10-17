@@ -45,7 +45,10 @@ class PipelineVerifier : public HloModulePass {
 
   absl::string_view name() const override { return "pipeline-verifier"; }
 
-  StatusOr<bool> Run(HloModule* module) override;
+  using HloPassInterface::Run;
+  StatusOr<bool> Run(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
  private:
   // Verify a pipeline can be lowered.

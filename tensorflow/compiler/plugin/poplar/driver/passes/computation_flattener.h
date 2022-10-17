@@ -32,12 +32,17 @@ class ComputationFlattener : public HloModulePass {
  public:
   absl::string_view name() const override { return "computation-flattener"; }
 
-  StatusOr<bool> Run(HloModule* module) override;
+  using HloPassInterface::Run;
+  StatusOr<bool> Run(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
  private:
   Status FlattenNode(const CallGraphNode&);
   Status GenerateFunctionSet(const CallGraphNode&);
-  Status FindRecomputableComputations(const HloModule*);
+  Status FindRecomputableComputations(
+    const HloModule*,
+    const absl::flat_hash_set<absl::string_view>& execution_threads);
 
   // This set tracks computations based on being identical despite being
   // different computations.  During the descison to inline, this set is used

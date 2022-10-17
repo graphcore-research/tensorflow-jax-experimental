@@ -1947,15 +1947,13 @@ Status PoplarAlgebraicSimplifierVisitor::HandleBroadcast(
   // A broadcast of a reshape which merely inserts 1-sized dimensions can
   // elide its operand.
   {
-    bool merely_inserts_or_deletes_1_sized_dimensions;
-    std::vector<int64_t> inserted_indices, deleted_indices;
-    std::tie(merely_inserts_or_deletes_1_sized_dimensions, deleted_indices,
-             inserted_indices) =
+    std::optional<ShapeUtil::ShapeEqualityDescriptor> reshape_degenerate = 
         operand->ReshapeMerelyInsertsOrDeletes1SizedDimensions();
-    if (merely_inserts_or_deletes_1_sized_dimensions &&
-        deleted_indices.empty()) {
-      std::reverse(inserted_indices.begin(), inserted_indices.end());
-      for (auto inserted_index : inserted_indices) {
+    if (reshape_degenerate.has_value() &&
+        reshape_degenerate->deleted_dimensions.empty()) {
+
+      absl::c_reverse(reshape_degenerate->inserted_dimensions);
+      for (auto inserted_index : reshape_degenerate->inserted_dimensions) {
         dims.erase(dims.begin() + inserted_index);
       }
       return ReplaceWithNewInstruction(
@@ -4361,12 +4359,14 @@ PoplarAlgebraicSimplifier::PoplarAlgebraicSimplifier(
     poplarplugin::IpuOptions_IpuAlgebraicSimplifierConfig config)
     : config_(std::move(config)) {}
 
-StatusOr<bool> PoplarAlgebraicSimplifier::Run(HloModule* module) {
+StatusOr<bool> PoplarAlgebraicSimplifier::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   XLA_VLOG_LINES(
       2, "PoplarAlgebraicSimplifier::Run(), before:\n" + module->ToString());
   bool changed = false;
   PoplarAlgebraicSimplifierVisitor visitor(this, config_);
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (pp::IsPopOpsFusion(comp)) {
       continue;
     }

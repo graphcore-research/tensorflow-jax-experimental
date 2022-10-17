@@ -78,10 +78,12 @@ static StatusOr<popnn::ctc::Plan> GetPlanForInferenceInstruction(
  * This visitor iterates over all ops in the graph, and creates a Plan for
  * every HloCTCLossInstruction and HloCTCInferenceInstruction found.
  */
-StatusOr<bool> CTCPreplanning::Run(HloModule* module) {
+StatusOr<bool> CTCPreplanning::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Preplanning CTC operations.";
 
-  for (const HloComputation* comp : module->computations()) {
+  for (const HloComputation* comp : module->computations(execution_threads)) {
     for (const HloInstruction* inst : comp->instructions()) {
       if (HasCTCPlan(inst)) {
         auto plan = IsCTCInferenceInst(inst)

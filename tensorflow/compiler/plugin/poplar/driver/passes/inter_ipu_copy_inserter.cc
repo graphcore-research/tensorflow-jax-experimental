@@ -89,7 +89,9 @@ StatusOr<HloInstruction*> InsertInterIpuCopy(
 
 using UserAndParam = std::pair<HloInstruction*, int>;
 
-StatusOr<bool> InterIpuCopyInserter::Run(HloModule* module) {
+StatusOr<bool> InterIpuCopyInserter::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   if (!HaveSharding(module)) {
     return false;
   }
@@ -106,7 +108,7 @@ StatusOr<bool> InterIpuCopyInserter::Run(HloModule* module) {
            IsGCLWithinReplicaOp(inst);
   };
 
-  for (auto* comp : module->MakeComputationPostOrder()) {
+  for (auto* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

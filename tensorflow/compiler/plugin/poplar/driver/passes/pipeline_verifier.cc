@@ -165,10 +165,12 @@ Status PipelineVerifier::VerifyPipeline(HloInstruction* pipeline_op,
   return Status::OK();
 }
 
-StatusOr<bool> PipelineVerifier::Run(HloModule* module) {
+StatusOr<bool> PipelineVerifier::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   // First verify the usage of PipelineStatefulGradientAccumulate.
   std::unique_ptr<CallGraph> call_graph = CallGraph::Build(module);
-  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module));
+  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module, execution_threads));
   if (pipeline_ops.empty()) {
     // No pipeline ops found - nothing to verify.
     return false;

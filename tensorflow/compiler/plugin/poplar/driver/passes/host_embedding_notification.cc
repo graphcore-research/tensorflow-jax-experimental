@@ -51,7 +51,9 @@ void PopulateEmbeddingMap(
 }
 }  // namespace
 
-StatusOr<bool> HostEmbeddingNotification::Run(HloModule* module) {
+StatusOr<bool> HostEmbeddingNotification::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   std::vector<HloInstruction*> notication_insts;
   std::vector<HloInstruction*> resource_updates;
 
@@ -59,7 +61,7 @@ StatusOr<bool> HostEmbeddingNotification::Run(HloModule* module) {
       embedding_instructions;
 
   // Find all the notification, resource updates, and lookup/updates.
-  for (auto computation : module->MakeComputationPostOrder()) {
+  for (auto computation : module->MakeComputationPostOrder(execution_threads)) {
     absl::c_copy_if(computation->MakeInstructionPostOrder(),
                     std::back_inserter(notication_insts),
                     IsPoplarInstruction(PoplarOp::HostEmbeddingNotify));

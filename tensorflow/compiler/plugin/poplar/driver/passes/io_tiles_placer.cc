@@ -189,7 +189,9 @@ static bool UpdateNumIoTiles(int64_t& resources_num_io_tiles_,
   return true;
 }
 
-StatusOr<bool> IoTilesPlacer::Run(HloModule* module) {
+StatusOr<bool> IoTilesPlacer::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   if (!enabled_) {
     return false;
   }
@@ -201,7 +203,7 @@ StatusOr<bool> IoTilesPlacer::Run(HloModule* module) {
 
   const auto call_graph = CallGraph::Build(module);
 
-  auto computations = module->MakeComputationPostOrder();
+  auto computations = module->MakeComputationPostOrder(execution_threads);
 
   for (auto* comp : computations) {
     if (IsPopOpsFusion(comp)) {

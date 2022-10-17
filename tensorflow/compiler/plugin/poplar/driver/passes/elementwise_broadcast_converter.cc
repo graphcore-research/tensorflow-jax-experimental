@@ -182,10 +182,12 @@ StatusOr<bool> ConvertBroadcastsToImplicit(HloInstruction* inst) {
 }
 }  // namespace
 
-StatusOr<bool> ElementwiseBroadcastConverter::Run(HloModule* module) {
+StatusOr<bool> ElementwiseBroadcastConverter::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   std::vector<HloInstruction*> binary_and_ternary_ops;
   // Find all ternary and binary ops.
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

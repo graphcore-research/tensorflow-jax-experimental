@@ -33,9 +33,10 @@ namespace poplarplugin {
 namespace {
 
 StatusOr<std::vector<std::vector<HloInstruction*>>> FilterResourceUpdates(
-    const HloModule* const module) {
+    const HloModule* const module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   std::vector<std::vector<HloInstruction*>> resource_updates;
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     std::vector<HloInstruction*> comp_insts;
     for (auto inst : comp->MakeInstructionPostOrder()) {
       if (IsResourceUpdate(inst)) {
@@ -518,13 +519,15 @@ Status RemoveOldResourceUpdates(const std::vector<HloInstruction*>& insts,
 
 }  // namespace
 
-StatusOr<bool> ResourceUpdateMerger::Run(HloModule* module) {
+StatusOr<bool> ResourceUpdateMerger::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before ResourceUpdateMerger:";
   XLA_VLOG_LINES(2, module->ToString());
 
   bool changed = false;
 
-  TF_ASSIGN_OR_RETURN(auto resource_updates, FilterResourceUpdates(module));
+  TF_ASSIGN_OR_RETURN(auto resource_updates, FilterResourceUpdates(module, execution_threads));
   for (const auto& instructions : resource_updates) {
     if (instructions.size() <= 1) {
       continue;

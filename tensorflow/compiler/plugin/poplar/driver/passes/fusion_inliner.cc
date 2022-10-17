@@ -34,14 +34,16 @@ Status InlineFusion(HloInstruction* fusion) {
 FusionInliner::FusionInliner(std::function<bool(HloInstruction*)> predicate)
     : predicate_(predicate) {}
 
-StatusOr<bool> FusionInliner::Run(HloModule* module) {
+StatusOr<bool> FusionInliner::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before FusionInliner:";
   XLA_VLOG_LINES(2, module->ToString());
   bool changed = false;
 
   std::vector<HloInstruction*> to_inline;
 
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

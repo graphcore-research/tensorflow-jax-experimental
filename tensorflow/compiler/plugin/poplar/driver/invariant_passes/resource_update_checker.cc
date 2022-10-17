@@ -22,8 +22,10 @@ limitations under the License.
 namespace xla {
 namespace poplarplugin {
 
-StatusOr<bool> ResourceUpdateChecker::Run(HloModule* module) {
-  for (const HloComputation* comp : module->computations()) {
+StatusOr<bool> ResourceUpdateChecker::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  for (const HloComputation* comp : module->computations(execution_threads)) {
     for (const HloInstruction* inst : comp->instructions()) {
       if (IsResourceUpdate(inst)) {
         absl::flat_hash_set<int64_t> seen_indices;

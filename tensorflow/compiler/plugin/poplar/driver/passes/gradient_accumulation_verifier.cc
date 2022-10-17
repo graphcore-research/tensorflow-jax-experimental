@@ -430,9 +430,11 @@ Status GradientAccumulationVerifier::VerifyGenericGradientAccumulation(
   return Status::OK();
 }
 
-StatusOr<bool> GradientAccumulationVerifier::Run(HloModule* module) {
+StatusOr<bool> GradientAccumulationVerifier::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   std::unique_ptr<CallGraph> call_graph = CallGraph::Build(module);
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

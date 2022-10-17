@@ -878,9 +878,10 @@ static void RemoveSharding(
 
 static StatusOr<absl::flat_hash_set<const HloComputation*>>
 FindInstructionsCompletedInPipeline(HloModule* module,
+                                    const absl::flat_hash_set<absl::string_view>& execution_threads,
                                     const CallGraph* call_graph) {
   // We first fix sharding for pipelining as it is well defined.
-  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module));
+  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module, execution_threads));
   if (pipeline_ops.size()) {
     CHECK_EQ(pipeline_ops.size(), 1);
     return ProcessPipeline(pipeline_ops[0], call_graph,
@@ -1112,7 +1113,10 @@ bool IsWhileLoopBody(CallGraph& call_graph, HloComputation* comp) {
 
 }  // namespace
 
-StatusOr<bool> ShardingPass::Run(HloModule* module) {
+StatusOr<bool> ShardingPass::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  // TODO: use execution threads
   VLOG(2) << "Before ShardingPass:";
   XLA_VLOG_LINES(2, module->ToString());
 
@@ -1123,7 +1127,7 @@ StatusOr<bool> ShardingPass::Run(HloModule* module) {
   }
   TF_ASSIGN_OR_RETURN(
       absl::flat_hash_set<const HloComputation*> completed,
-      FindInstructionsCompletedInPipeline(module, call_graph.get()));
+      FindInstructionsCompletedInPipeline(module, execution_threads, call_graph.get()));
   // We now propagate the sharding for the rest of the module.
   RemoveSharding(module, completed);
 

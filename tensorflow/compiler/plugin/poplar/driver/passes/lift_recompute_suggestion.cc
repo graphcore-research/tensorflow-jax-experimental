@@ -39,10 +39,12 @@ bool IsRecomputeInstruction(const HloInstruction* inst) {
 }
 }  // namespace
 
-StatusOr<bool> LiftRecomputeSuggestion::Run(HloModule* module) {
+StatusOr<bool> LiftRecomputeSuggestion::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   std::vector<HloCustomCallInstruction*> custom_calls;
 
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

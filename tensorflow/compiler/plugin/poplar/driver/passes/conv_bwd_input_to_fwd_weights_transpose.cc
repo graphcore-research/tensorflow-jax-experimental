@@ -174,7 +174,9 @@ StatusOr<bool> ForwardBackwardConvolutionMatch(HloInstruction* fwd,
 
 }  // namespace
 
-StatusOr<bool> ConvBwdInputToFwdWeightsTranspose::Run(HloModule* module) {
+StatusOr<bool> ConvBwdInputToFwdWeightsTranspose::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
   VLOG(2) << "Before the ConvBwdInputToFwdWeightsTranspose:";
   XLA_VLOG_LINES(2, module->ToString());
@@ -182,7 +184,7 @@ StatusOr<bool> ConvBwdInputToFwdWeightsTranspose::Run(HloModule* module) {
   std::vector<HloInstruction*> to_replace;
   std::vector<HloInstruction*> fwd_conv;
 
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

@@ -633,7 +633,10 @@ Status AddMergedInfo(const GroupedInstructions& creators_to_merge,
 
 }  // namespace
 
-StatusOr<bool> RemoteBufferMerger::Run(HloModule* module) {
+StatusOr<bool> RemoteBufferMerger::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  // TODO: use execution threads
   VLOG(3) << "RemoteBufferMerger mode: " << ThreeState_Name(mode_);
   if (mode_ == THREESTATE_OFF) {
     return false;

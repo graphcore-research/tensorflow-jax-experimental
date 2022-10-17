@@ -81,14 +81,16 @@ Status DistributedBatchNormDecompose(HloInstruction* const inst) {
       inst, HloInstruction::CreateTuple({normalized, mean, variance}));
 }
 
-StatusOr<bool> DistributedBatchNormDecomposer::Run(HloModule* module) {
+StatusOr<bool> DistributedBatchNormDecomposer::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   if (!allow_recomputation_ || replica_group_size_ < 2) {
     return false;
   }
 
   TF_ASSIGN_OR_RETURN(
       std::vector<HloInstruction*> instructions_to_recompute,
-      PipelineRecomputation::GetInstructionsToRecompute(module));
+      PipelineRecomputation::GetInstructionsToRecompute(module, execution_threads));
 
   std::vector<HloInstruction*> batch_norm_training_insts;
   for (HloInstruction* inst : instructions_to_recompute) {

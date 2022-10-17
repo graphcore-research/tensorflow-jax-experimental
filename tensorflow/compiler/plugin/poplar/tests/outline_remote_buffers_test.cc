@@ -216,7 +216,7 @@ TEST_F(OutlineRemoteBuffersTest, TestGetFunctions) {
 
   ASSERT_TRUE(CustomOpReplacer().Run(module.get()).ValueOrDie());
   auto all_functions =
-      OutlineRemoteBuffers::GetFunctionsForOutlining(module.get());
+      OutlineRemoteBuffers::GetFunctionsForOutlining(module.get(), {});
   EXPECT_EQ(all_functions.size(), 1);
 
   auto functions = *std::begin(all_functions)->second;
@@ -243,7 +243,7 @@ TEST_F(OutlineRemoteBuffersTest, TestGetFunctionsWithPermutation) {
 
   ASSERT_TRUE(CustomOpReplacer().Run(module.get()).ValueOrDie());
   auto all_functions =
-      OutlineRemoteBuffers::GetFunctionsForOutlining(module.get());
+      OutlineRemoteBuffers::GetFunctionsForOutlining(module.get(), {});
   EXPECT_EQ(all_functions.size(), 1);
 
   auto functions = *std::begin(all_functions)->second;
@@ -324,7 +324,7 @@ ENTRY main {
 
   ASSERT_TRUE(CustomOpReplacer().Run(module.get()).ValueOrDie());
   auto all_functions =
-      OutlineRemoteBuffers::GetFunctionsForOutlining(module.get());
+      OutlineRemoteBuffers::GetFunctionsForOutlining(module.get(), {});
   EXPECT_EQ(all_functions.size(), 0);
 
   HloInstruction* c0 = FindInstruction(module.get(), "c0");
@@ -535,7 +535,7 @@ TEST_F(OutlineRemoteBuffersTest, TestElementwiseCluster) {
 
   ASSERT_TRUE(CustomOpReplacer().Run(module.get()).ValueOrDie());
   auto all_functions =
-      OutlineRemoteBuffers::GetFunctionsForOutlining(module.get());
+      OutlineRemoteBuffers::GetFunctionsForOutlining(module.get(), {});
   EXPECT_EQ(all_functions.size(), 1);
 
   auto functions = *std::begin(all_functions)->second;

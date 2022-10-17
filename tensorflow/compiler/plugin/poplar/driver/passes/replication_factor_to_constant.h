@@ -36,7 +36,10 @@ class ReplicationFactorToConstant : public HloModulePass {
 
   // Run the pass on the given HLO module.  Returns whether it modified the
   // module.
-  StatusOr<bool> Run(HloModule* module) override;
+  using HloPassInterface::Run;
+  StatusOr<bool> Run(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
  private:
   int32 replication_factor_;

@@ -138,7 +138,9 @@ StatusOr<bool> FunctionOptimizer::OptimizeFunction(HloInstruction* function) {
   return changed_root || moved_parameters;
 }
 
-StatusOr<bool> FunctionOptimizer::Run(HloModule* module) {
+StatusOr<bool> FunctionOptimizer::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before FunctionOptimizer:";
   XLA_VLOG_LINES(2, module->ToString());
 
@@ -146,7 +148,7 @@ StatusOr<bool> FunctionOptimizer::Run(HloModule* module) {
   // Find all the function instructions - note that users might be
   // modified/removed.
   std::vector<HloInstruction*> functions;
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

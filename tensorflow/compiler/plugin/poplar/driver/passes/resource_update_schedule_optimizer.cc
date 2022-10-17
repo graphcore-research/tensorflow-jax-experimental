@@ -65,14 +65,16 @@ StatusOr<bool> ResourceUpdateScheduleOptimizer::OptimizeResourceUpdate(
   return changed;
 }
 
-StatusOr<bool> ResourceUpdateScheduleOptimizer::Run(HloModule* module) {
+StatusOr<bool> ResourceUpdateScheduleOptimizer::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before ResourceUpdateScheduleOptimizer:";
   XLA_VLOG_LINES(2, module->ToString());
 
   bool changed = false;
 
   // Run it for pipelines.
-  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module));
+  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module, execution_threads));
   for (HloInstruction* pipeline_op : pipeline_ops) {
     HloComputation* pipeline_comp = pipeline_op->to_apply();
     TF_ASSIGN_OR_RETURN(PipelineStages stages,

@@ -150,9 +150,11 @@ StatusOr<bool> FixResourceUpdate(HloInstruction* resource_update,
 }
 }  // namespace
 
-StatusOr<bool> ResourceUpdateFixer::Run(HloModule* module) {
+StatusOr<bool> ResourceUpdateFixer::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   std::vector<HloInstruction*> resource_updates;
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     for (HloInstruction* inst : comp->MakeInstructionPostOrder()) {
       if (IsResourceUpdate(inst)) {
         resource_updates.push_back(inst);

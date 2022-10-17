@@ -77,10 +77,12 @@ bool IsInstructionCacheable(HloInstruction* inst) {
   return false;
 }
 
-std::vector<HloInstruction*> GetCachableInstructions(HloModule* module) {
+std::vector<HloInstruction*> GetCachableInstructions(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   std::vector<HloInstruction*> insts;
 
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp, "")) {
       continue;
     }
@@ -142,10 +144,12 @@ Status MoveInstructionIntoCacheableComputation(HloInstruction* inst) {
 
 };  // namespace
 
-StatusOr<bool> OutlineInstructions::Run(HloModule* module) {
+StatusOr<bool> OutlineInstructions::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
 
-  for (auto* inst : GetCachableInstructions(module)) {
+  for (auto* inst : GetCachableInstructions(module, execution_threads)) {
     TF_RETURN_IF_ERROR(MoveInstructionIntoCacheableComputation(inst));
     changed = true;
   }

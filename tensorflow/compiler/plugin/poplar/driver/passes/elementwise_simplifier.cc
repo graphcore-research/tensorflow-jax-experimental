@@ -104,12 +104,14 @@ Status ElementwiseSimplifierVisitor::HandleMultiply(HloInstruction* multiply) {
   return Status::OK();
 }
 
-StatusOr<bool> ElementwiseSimplifier::Run(HloModule* module) {
+StatusOr<bool> ElementwiseSimplifier::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   XLA_VLOG_LINES(
       2, "ElementwiseSimplifier::Run(), before:\n" + module->ToString());
   bool changed = false;
   ElementwiseSimplifierVisitor visitor;
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

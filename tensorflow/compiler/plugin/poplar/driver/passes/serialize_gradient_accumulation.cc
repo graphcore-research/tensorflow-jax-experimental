@@ -504,9 +504,11 @@ Status ConvertGradientAccumulatorAdd(HloInstruction* inst) {
   return Status::OK();
 }
 
-StatusOr<bool> ConvertGradientAccumulatorAdds(HloModule* module) {
+StatusOr<bool> ConvertGradientAccumulatorAdds(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }
@@ -530,11 +532,13 @@ StatusOr<bool> ConvertGradientAccumulatorAdds(HloModule* module) {
 }
 }  // namespace
 
-StatusOr<bool> SerializeGradientAccumulation::Run(HloModule* module) {
+StatusOr<bool> SerializeGradientAccumulation::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before SerializeGradientAccumulation:";
   XLA_VLOG_LINES(2, module->ToString());
   TF_ASSIGN_OR_RETURN(const bool changed,
-                      ConvertGradientAccumulatorAdds(module));
+                      ConvertGradientAccumulatorAdds(module, execution_threads));
   if (changed) {
     VLOG(2) << "After SerializeGradientAccumulation:";
     XLA_VLOG_LINES(2, module->ToString());

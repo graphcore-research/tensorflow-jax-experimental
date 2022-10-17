@@ -262,12 +262,14 @@ StatusOr<bool> ReplaceGather(HloGatherInstruction* gather) {
 }
 }  // namespace
 
-StatusOr<bool> GatherSimplifier::Run(HloModule* module) {
+StatusOr<bool> GatherSimplifier::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
   VLOG(2) << "Before the GatherSimplifier:";
   XLA_VLOG_LINES(2, module->ToString());
 
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

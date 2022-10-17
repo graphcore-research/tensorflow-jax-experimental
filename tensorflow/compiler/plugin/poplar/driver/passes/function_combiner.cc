@@ -528,14 +528,16 @@ StatusOr<bool> FunctionCombiner::RunOnComputation(HloComputation* comp) {
   return functions_to_combine.size();
 }
 
-StatusOr<bool> FunctionCombiner::Run(HloModule* module) {
+StatusOr<bool> FunctionCombiner::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before FunctionCombiner:";
   XLA_VLOG_LINES(2, module->ToString());
 
   bool changed = false;
 
   // Run it for all resource updates.
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

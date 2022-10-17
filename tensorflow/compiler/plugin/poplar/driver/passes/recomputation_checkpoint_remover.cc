@@ -25,9 +25,11 @@ limitations under the License.
 
 namespace xla {
 namespace poplarplugin {
-StatusOr<bool> RecomputationCheckpointRemover::Run(HloModule* module) {
+StatusOr<bool> RecomputationCheckpointRemover::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   std::vector<HloInstruction*> to_remove;
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

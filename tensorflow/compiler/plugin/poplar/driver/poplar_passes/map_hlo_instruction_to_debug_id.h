@@ -38,7 +38,10 @@ class MapHloInstructionToDebugIdPass : public HloModulePass {
     return "map-hlo-instruction-to-debug-id";
   }
 
-  StatusOr<bool> Run(HloModule* module) override;
+  using HloPassInterface::Run;
+  StatusOr<bool> Run(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
  private:
   absl::flat_hash_map<const HloInstruction*, std::uint64_t>& map_;

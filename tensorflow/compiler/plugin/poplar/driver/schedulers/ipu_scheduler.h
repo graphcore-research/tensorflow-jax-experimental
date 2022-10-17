@@ -71,7 +71,10 @@ class ChooseBestIpuScheduler : public HloModulePass {
     return "chooose-best-ipu-scheduler";
   }
 
-  StatusOr<bool> Run(HloModule* module) override;
+  using HloPassInterface::Run;
+  StatusOr<bool> Run(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
  private:
   std::vector<NamedIpuSchedulerAlgorithm> algorithms_;
@@ -92,9 +95,13 @@ class IpuScheduler : public HloModulePass {
 
   absl::string_view name() const override { return "ipu-scheduler"; }
 
-  StatusOr<bool> Run(HloModule* module) override;
+  using HloPassInterface::Run;
   StatusOr<bool> Run(
       HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
+  StatusOr<bool> Run(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads,
       std::unique_ptr<HloPoplarDataflowAnalysis> dataflow_analysis);
 
  private:

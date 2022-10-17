@@ -207,7 +207,7 @@ TEST_F(PipelineRecomputationTest, TestGetInstructionsToRecompute) {
 
   TF_ASSERT_OK_AND_ASSIGN(
       auto insts,
-      PipelineRecomputation::GetInstructionsToRecompute(module.get()));
+      PipelineRecomputation::GetInstructionsToRecompute(module.get(), {}));
   HloInstruction* in12 = FindInstruction(module.get(), "in12");
   EXPECT_THAT(insts, ::testing::ElementsAre(in12));
 }

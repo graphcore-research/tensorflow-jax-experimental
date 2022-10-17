@@ -468,12 +468,14 @@ StatusOr<bool> PipelineRecomputationStageInserter::RecomputePipeline(
   return changed;
 }
 
-StatusOr<bool> PipelineRecomputationStageInserter::Run(HloModule* module) {
+StatusOr<bool> PipelineRecomputationStageInserter::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   if (!allow_recomputation_) {
     return false;
   }
 
-  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module));
+  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module, execution_threads));
   if (pipeline_ops.empty()) {
     // No pipeline ops found - nothing to fix.
     return false;

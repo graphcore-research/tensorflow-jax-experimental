@@ -31,14 +31,16 @@ using GetFeedConfigFn = std::function<PoplarFeedConfig(const HloInstruction*)>;
 using SetFeedConfigFn =
     std::function<void(HloInstruction*, const std::string&)>;
 
-StatusOr<bool> HandleFeeds(HloModule* module, PredFn predicate,
+StatusOr<bool> HandleFeeds(HloModule* module, 
+                           const absl::flat_hash_set<absl::string_view>& execution_threads,
+                           PredFn predicate,
                            GetFeedConfigFn get_config,
                            SetFeedConfigFn set_config) {
   bool changed = false;
 
   absl::flat_hash_map<std::string, std::vector<HloInstruction*>> feeds;
 
-  for (HloComputation* comp : module->computations()) {
+  for (HloComputation* comp : module->computations(execution_threads)) {
     for (HloInstruction* inst : comp->instructions()) {
       if (predicate(inst)) {
         PoplarFeedConfig config = get_config(inst);
@@ -82,10 +84,13 @@ StatusOr<bool> HandleFeeds(HloModule* module, PredFn predicate,
 }
 }  // namespace
 
-StatusOr<bool> MultiUseFeedsFinder::Run(HloModule* module) {
+StatusOr<bool> MultiUseFeedsFinder::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   TF_ASSIGN_OR_RETURN(
       bool changed_infeeds,
       HandleFeeds(module,
+                  execution_threads,
                   [](const HloInstruction* inst) {
                     return inst->opcode() == HloOpcode::kInfeed;
                   },
@@ -101,6 +106,7 @@ StatusOr<bool> MultiUseFeedsFinder::Run(HloModule* module) {
   TF_ASSIGN_OR_RETURN(
       bool changed_outfeeds,
       HandleFeeds(module,
+                  execution_threads,
                   [](const HloInstruction* inst) {
                     return inst->opcode() == HloOpcode::kOutfeed;
                   },

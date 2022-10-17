@@ -41,13 +41,15 @@ bool IsSupportedGather(const HloInstruction* gather_inst) {
 }
 }  // namespace
 
-StatusOr<bool> NotSupportedGatherExpander::Run(HloModule* module) {
+StatusOr<bool> NotSupportedGatherExpander::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "HLO module before NotSupportedGatherExpander:";
   XLA_VLOG_LINES(2, module->ToString());
 
   bool changed = false;
   std::vector<HloInstruction*> not_supported_gather_insts;
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

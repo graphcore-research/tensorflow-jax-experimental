@@ -84,7 +84,8 @@ class OrderedPipelineStages {
 
 // Get all the pipelines in the module.
 StatusOr<absl::InlinedVector<HloInstruction*, 1>> GetPipelines(
-    const HloModule* module);
+    const HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads);
 
 // Get the forward and backward pipeline stages from the pipeline_computation.
 StatusOr<PipelineStages> GetPipelineStages(HloComputation* pipeline_computation,

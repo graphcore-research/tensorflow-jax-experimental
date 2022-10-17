@@ -444,12 +444,14 @@ StatusOr<bool> ResourceUpdateElementwiseClustering::RewriteCall(
   return true;
 }
 
-StatusOr<bool> ResourceUpdateElementwiseClustering::Run(HloModule* module) {
+StatusOr<bool> ResourceUpdateElementwiseClustering::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before the ResourceUpdateElementwiseClustering:";
   XLA_VLOG_LINES(2, module->ToString());
 
   std::vector<HloInstruction*> to_optimize;
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     for (HloInstruction* inst : comp->MakeInstructionPostOrder()) {
       if (IsRepeatLoop(inst) || IsPipelineOp(inst)) {
         to_optimize.push_back(inst);

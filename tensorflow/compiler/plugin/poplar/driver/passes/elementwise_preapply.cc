@@ -336,12 +336,14 @@ REGISTER_OP_HANDLER(kReduce, HandleReduce);
 
 }  // anonymous namespace
 
-StatusOr<bool> ElementwisePreapply::Run(HloModule* module) {
+StatusOr<bool> ElementwisePreapply::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before the ElementwisePreapply:";
   XLA_VLOG_LINES(2, module->ToString());
   bool changed = false;
 
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

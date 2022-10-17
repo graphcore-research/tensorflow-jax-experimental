@@ -281,10 +281,12 @@ Status HoistFromRepeatLoop(HloInstruction* seed, HloInstruction* loop) {
 }
 }  // namespace
 
-StatusOr<bool> ProcessModule(HloModule* module) {
+StatusOr<bool> ProcessModule(
+    HloModule* module, 
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   std::unique_ptr<CallGraph> call_graph = CallGraph::Build(module);
 
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }
@@ -343,14 +345,17 @@ StatusOr<bool> ProcessModule(HloModule* module) {
   return false;
 }
 
-StatusOr<bool> SeedHoisting::Run(HloModule* module) {
+StatusOr<bool> SeedHoisting::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  // TODO: use execution threads
   VLOG(2) << "Before SeedHoisting:";
   XLA_VLOG_LINES(2, module->ToString(HloPrintOptions::ShortParsable()));
 
   bool hoisted = false;
   int64_t num_passes = 0;
   do {
-    TF_ASSIGN_OR_RETURN(hoisted, ProcessModule(module));
+    TF_ASSIGN_OR_RETURN(hoisted, ProcessModule(module, execution_threads));
     if (hoisted) {
       num_passes++;
     }

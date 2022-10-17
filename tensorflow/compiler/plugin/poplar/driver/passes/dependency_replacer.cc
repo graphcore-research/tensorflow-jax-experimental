@@ -32,8 +32,10 @@ namespace poplarplugin {
  * GetAllDeps finds all instructions which are control dependency predecessors
  * of the argument, by following add-dependency and after-all instructions.
  */
-StatusOr<bool> DependencyReplacer::Run(HloModule* module) {
-  for (auto* comp : module->MakeComputationPostOrder()) {
+StatusOr<bool> DependencyReplacer::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  for (auto* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

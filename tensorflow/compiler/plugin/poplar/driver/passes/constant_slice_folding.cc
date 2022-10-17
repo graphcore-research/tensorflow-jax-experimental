@@ -37,12 +37,14 @@ limitations under the License.
 namespace xla {
 namespace poplarplugin {
 
-StatusOr<bool> ConstantSliceFolding::Run(HloModule* module) {
+StatusOr<bool> ConstantSliceFolding::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   auto evaluator = absl::make_unique<HloEvaluator>(/*max_loop_iterations=*/0);
 
   bool changed = false;
 
-  for (auto computation : module->MakeComputationPostOrder()) {
+  for (auto computation : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(computation)) {
       continue;
     }

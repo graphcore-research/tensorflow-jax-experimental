@@ -261,13 +261,15 @@ Status PoplinPreplanning::StorePreplanMatMuls(const HloInstruction* inst) {
   return Status::OK();
 }
 
-StatusOr<bool> PoplinPreplanning::Run(HloModule* module) {
+StatusOr<bool> PoplinPreplanning::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Preplanning convolution and matmul operations.";
   preplan_convs.clear();
   preplan_matmuls.clear();
   option_flags_store.clear();
 
-  for (auto* comp : module->computations()) {
+  for (auto* comp : module->computations(execution_threads)) {
     if (!IsPopOpsFusion(comp)) {
       for (HloInstruction* inst : comp->instructions()) {
         if (inst->opcode() == HloOpcode::kConvolution) {

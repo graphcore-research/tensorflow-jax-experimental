@@ -21,8 +21,10 @@ limitations under the License.
 namespace xla {
 namespace poplarplugin {
 
-StatusOr<bool> NoControlDepsChecker::Run(HloModule* module) {
-  for (HloComputation* comp : module->computations()) {
+StatusOr<bool> NoControlDepsChecker::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
+  for (HloComputation* comp : module->computations(execution_threads)) {
     const bool has_control_deps =
         absl::c_any_of(comp->instructions(), [](const HloInstruction* inst) {
           return inst->control_successors().size();

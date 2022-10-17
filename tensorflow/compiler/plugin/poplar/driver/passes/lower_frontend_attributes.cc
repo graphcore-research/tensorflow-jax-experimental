@@ -108,12 +108,14 @@ Status LowerPipelineFrontendAttributes(HloInstruction* pipeline_op,
 }
 }  // namespace
 
-StatusOr<bool> LowerFrontendAttributes::Run(HloModule* module) {
+StatusOr<bool> LowerFrontendAttributes::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
 
   // First lower any pipeline specific attributes.
   std::unique_ptr<CallGraph> call_graph = CallGraph::Build(module);
-  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module));
+  TF_ASSIGN_OR_RETURN(auto pipeline_ops, GetPipelines(module, execution_threads));
   if (pipeline_ops.size()) {
     CHECK_EQ(pipeline_ops.size(), 1);
     TF_RETURN_IF_ERROR(
@@ -129,7 +131,7 @@ StatusOr<bool> LowerFrontendAttributes::Run(HloModule* module) {
   // approximate the missing values.
   PrimitiveType partials_type = PRIMITIVE_TYPE_INVALID;
 
-  for (auto* comp : module->computations()) {
+  for (auto* comp : module->computations(execution_threads)) {
     for (auto instr : comp->instructions()) {
       auto attributes = instr->frontend_attributes();
       TF_ASSIGN_OR_RETURN(auto poplar_backend_config,

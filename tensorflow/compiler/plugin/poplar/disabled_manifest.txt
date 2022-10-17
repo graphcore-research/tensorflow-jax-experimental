@@ -160,3 +160,5 @@ RandomOpsTest.testParameterizedTruncatedNormalBatched   # Too big for IPU 2d ver
 RuntimeShapeCheckTest.testUniqueDifferentSizes # GPU backend custom op. TODO: IPU implementation?
 RuntimeShapeCheckTest.testWhereOpDifferentSizes
 ImageOpsTest.testGradImageResize # Failing in TF 2.10?
+TridiagonalMatMulOpsTest                            # No IPU kernel.
+XlaCallModuleOpTest.test_multiple_args_results      # No XlaCallModule IPU kernel

@@ -108,9 +108,10 @@ bool IsPipelineStageReadOnlyInput(const HloInstruction* inst) {
 }
 
 StatusOr<absl::InlinedVector<HloInstruction*, 1>> GetPipelines(
-    const HloModule* module) {
+    const HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   absl::InlinedVector<HloInstruction*, 1> pipeline_ops;
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

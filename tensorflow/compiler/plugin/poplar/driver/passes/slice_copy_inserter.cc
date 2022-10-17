@@ -300,7 +300,9 @@ SliceCopyInserter::SliceCopyInserter(CompilerAnnotations& annotations)
  * - The parent computation for that instruction is unique (i.e. not a clone
  *   that `xla::ModuleFlatten` created).
  */
-StatusOr<bool> SliceCopyInserter::Run(HloModule* module) {
+StatusOr<bool> SliceCopyInserter::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   auto call_graph = CallGraph::Build(module);
   TF_RET_CHECK(call_graph->IsFlattened()) << absl::StrFormat(
       "'%s' can't be run on module '%s' which is not flattened.", name(),
@@ -309,11 +311,13 @@ StatusOr<bool> SliceCopyInserter::Run(HloModule* module) {
   TF_ASSIGN_OR_RETURN(auto dataflow, HloPoplarDataflowAnalysis::Run(
                                          module, annotations_, *call_graph));
 
-  return Run(module, *call_graph, *dataflow);
+  return Run(module, execution_threads, *call_graph, *dataflow);
 }
 
 StatusOr<bool> SliceCopyInserter::Run(
-    HloModule* module, const CallGraph& call_graph,
+    HloModule* module, 
+    const absl::flat_hash_set<absl::string_view>& execution_threads,
+    const CallGraph& call_graph,
     const HloPoplarDataflowAnalysis& dataflow) {
   TF_RET_CHECK(module->has_schedule()) << absl::StrFormat(
       "'%s' can't be run on module '%s' which has no schedule.", name(),

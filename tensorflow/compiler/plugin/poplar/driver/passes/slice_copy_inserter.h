@@ -45,9 +45,14 @@ class SliceCopyInserter : public HloModulePass {
 
   absl::string_view name() const override { return "slice-copy-inserter"; }
 
-  StatusOr<bool> Run(HloModule* module) override;
+  using HloPassInterface::Run;
+  StatusOr<bool> Run(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 
-  StatusOr<bool> Run(HloModule* module, const CallGraph& call_graph,
+  StatusOr<bool> Run(HloModule* module, 
+                     const absl::flat_hash_set<absl::string_view>& execution_threads,
+                     const CallGraph& call_graph,
                      const HloPoplarDataflowAnalysis& dataflow);
 
  private:

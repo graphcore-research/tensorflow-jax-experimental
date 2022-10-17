@@ -64,10 +64,12 @@ bool CaseBAllOperandsInConst32Set(
  * detrimental to performance and memory capacity, so do not fold broadcasts.
  */
 
-StatusOr<bool> F16ConstantFolding::Run(HloModule* module) {
+StatusOr<bool> F16ConstantFolding::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool graph_modified = false;
 
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

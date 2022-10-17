@@ -68,14 +68,16 @@ StatusOr<bool> InsertCopyBeforeInterTilesetCopy(HloComputation* computation) {
 }
 }  // namespace
 
-StatusOr<bool> RepeatLoopCopyInserter::Run(HloModule* module) {
+StatusOr<bool> RepeatLoopCopyInserter::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
   std::unique_ptr<CallGraph> call_graph = CallGraph::Build(module);
 
   VLOG(2) << "Before RepeatLoopCopyInserter:";
   XLA_VLOG_LINES(2, module->ToString(HloPrintOptions::ShortParsable()));
 
-  for (auto computation : module->MakeComputationPostOrder()) {
+  for (auto computation : module->MakeComputationPostOrder(execution_threads)) {
     auto callers = call_graph->GetComputationCallers(computation);
 
     // Only change repeat loops with a single callsite.

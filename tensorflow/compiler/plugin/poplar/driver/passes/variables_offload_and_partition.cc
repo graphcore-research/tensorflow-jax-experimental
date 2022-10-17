@@ -729,12 +729,14 @@ StatusOr<bool> VariablesOffloadAndPartition::Optimize(HloInstruction* call_op) {
   return changed;
 }
 
-StatusOr<bool> VariablesOffloadAndPartition::Run(HloModule* module) {
+StatusOr<bool> VariablesOffloadAndPartition::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before VariablesOffloadAndPartition:";
   XLA_VLOG_LINES(2, module->ToString());
   bool changed = false;
   std::vector<HloInstruction*> to_optimize;
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

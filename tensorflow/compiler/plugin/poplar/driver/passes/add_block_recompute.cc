@@ -40,10 +40,12 @@ bool ShouldBlockInstruction(const HloInstruction* inst) {
 }
 }  // namespace
 
-StatusOr<bool> AddBlockRecompute::Run(HloModule* module) {
+StatusOr<bool> AddBlockRecompute::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool result = false;
 
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

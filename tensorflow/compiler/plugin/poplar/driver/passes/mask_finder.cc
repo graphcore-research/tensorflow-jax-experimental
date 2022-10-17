@@ -182,12 +182,14 @@ StatusOr<HloInstruction*> RewriteMask(HloInstruction* select) {
 }
 }  // namespace
 
-StatusOr<bool> MaskFinder::Run(HloModule* module) {
+StatusOr<bool> MaskFinder::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   VLOG(2) << "Before the MaskFinder:";
   XLA_VLOG_LINES(2, module->ToString());
 
   std::vector<HloInstruction*> selects;
-  for (HloComputation* comp : module->MakeComputationPostOrder()) {
+  for (HloComputation* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

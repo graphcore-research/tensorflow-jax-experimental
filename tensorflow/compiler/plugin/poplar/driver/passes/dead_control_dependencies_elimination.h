@@ -35,7 +35,10 @@ class DeadControlDependenciesElimination : public HloModulePass {
     return "dead-control-dependencies-elimination";
   }
 
-  StatusOr<bool> Run(HloModule* module) override;
+  using HloPassInterface::Run;
+  StatusOr<bool> Run(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 };
 
 }  // namespace poplarplugin

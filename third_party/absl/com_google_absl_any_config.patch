@@ -1,0 +1,11 @@
+--- a/absl/base/options.h.orig	2021-11-03 15:26:14.000000000 +0000
++++ a/absl/base/options.h	2022-10-25 22:10:39.147475585 +0100
+@@ -100,7 +100,7 @@
+ // User code should not inspect this macro.  To check in the preprocessor if
+ // absl::any is a typedef of std::any, use the feature macro ABSL_USES_STD_ANY.
+ 
+-#define ABSL_OPTION_USE_STD_ANY 2
++#define ABSL_OPTION_USE_STD_ANY 0
+ 
+ 
+ // ABSL_OPTION_USE_STD_OPTIONAL

@@ -182,10 +182,12 @@ static Status InitialiseResourceUpdateConfig(
 
 }  // namespace
 
-StatusOr<bool> ParsePoplarBackendConfig::Run(HloModule* module) {
+StatusOr<bool> ParsePoplarBackendConfig::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool changed = false;
 
-  for (auto* comp : module->computations()) {
+  for (auto* comp : module->computations(execution_threads)) {
     for (auto instr : comp->instructions()) {
       auto attributes = instr->frontend_attributes();
       // Check if the calls have the type field set from tf2xla.

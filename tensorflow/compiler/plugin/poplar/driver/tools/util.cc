@@ -586,8 +586,8 @@ const HloInstruction* GetResourceUpdateNumMiniBatchesInstruction(
   // There must be a gradient accumulation count instruction
   // inside the computation.
   CHECK(it != instructions.end());
-  CHECK_EQ(it->operands().size(), 1);
-  return it->operand(0);
+  CHECK_EQ((*it)->operands().size(), 1);
+  return (*it)->operand(0);
 }
 
 HloInstruction* GetResourceUpdateNumMiniBatchesInstruction(
@@ -601,8 +601,8 @@ HloInstruction* GetResourceUpdateNumMiniBatchesInstruction(
   // There must be a gradient accumulation count instruction
   // inside the computation.
   CHECK(it != instructions.end());
-  CHECK_EQ(it->operands().size(), 1);
-  return it->mutable_operand(0);
+  CHECK_EQ((*it)->operands().size(), 1);
+  return (*it)->mutable_operand(0);
 }
 
 absl::optional<int64_t> GetResourceUpdateBatchesToAccumulate(

@@ -31,7 +31,10 @@ class PipelineStageMerger : public HloModulePass {
  public:
   absl::string_view name() const override { return "pipeline-stage-merger"; }
 
-  StatusOr<bool> Run(HloModule* module) override;
+  using HloPassInterface::Run;
+  StatusOr<bool> Run(
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 };
 
 }  // namespace poplarplugin

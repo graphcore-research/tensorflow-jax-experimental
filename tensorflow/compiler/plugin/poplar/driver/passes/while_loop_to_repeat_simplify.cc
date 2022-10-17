@@ -455,9 +455,11 @@ void PruneComputations(HloModule* module) {
 
 }  // namespace
 
-StatusOr<bool> WhileLoopToRepeatSimplify::Run(HloModule* module) {
+StatusOr<bool> WhileLoopToRepeatSimplify::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   // For each while instruction
-  for (auto* comp : module->MakeComputationPostOrder()) {
+  for (auto* comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

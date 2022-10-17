@@ -31,13 +31,15 @@ limitations under the License.
 namespace xla {
 namespace poplarplugin {
 
-StatusOr<bool> RemoveBlockedRecomputeSuggestions::Run(HloModule* module) {
+StatusOr<bool> RemoveBlockedRecomputeSuggestions::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   std::vector<HloCustomCallInstruction*> custom_calls;
 
   auto is_suggestion = IsPoplarInstruction(PoplarOp::SuggestRecompute);
   auto is_block = IsPoplarInstruction(PoplarOp::BlockRecompute);
 
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     if (IsPopOpsFusion(comp)) {
       continue;
     }

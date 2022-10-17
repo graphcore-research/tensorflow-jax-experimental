@@ -30,7 +30,9 @@ MapHloInstructionToDebugIdPass::MapHloInstructionToDebugIdPass(
     absl::flat_hash_map<const HloInstruction*, std::uint64_t>& map)
     : map_(map) {}
 
-StatusOr<bool> MapHloInstructionToDebugIdPass::Run(HloModule* module) {
+StatusOr<bool> MapHloInstructionToDebugIdPass::Run(
+    HloModule* module,
+    const absl::flat_hash_set<absl::string_view>& execution_threads) {
   bool result = true;
 
   std::unique_ptr<CallGraph> call_graph = CallGraph::Build(module);
@@ -38,7 +40,7 @@ StatusOr<bool> MapHloInstructionToDebugIdPass::Run(HloModule* module) {
   // Consider adding debug info for a HloModule and HloComputation
   // here so all instructions can be shown as part of a Module/Computation
 
-  for (auto comp : module->MakeComputationPostOrder()) {
+  for (auto comp : module->MakeComputationPostOrder(execution_threads)) {
     for (auto inst : comp->MakeInstructionPostOrder()) {
       // Create the top level XlaOp Debug Context.
       poplar::DebugContext xla_op_debug_context(inst->metadata().op_name());
