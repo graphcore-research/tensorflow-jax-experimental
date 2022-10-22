@@ -46,8 +46,6 @@ class BaseVisitor : public DfsHloVisitor {
 
   virtual const Shape& GetOutputShape(HloInstruction*) const;
 
-  Status HandleTupleSelect(HloInstruction* inst) override;
-
   Status HandleConvert(HloInstruction* inst) override;
 
   Status HandleBitcastConvert(HloInstruction* inst) override;

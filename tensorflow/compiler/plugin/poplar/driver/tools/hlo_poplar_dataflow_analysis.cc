@@ -568,7 +568,7 @@ class DataflowAnalysisBufferVisitor : public DfsHloVisitorWithDefault {
   HANDLE_AS_NOT_INPLACE(HandleReplicaId);
   HANDLE_AS_NOT_INPLACE(HandleSelectAndScatter);
   HANDLE_AS_NOT_INPLACE(HandleTriangularSolve);
-  HANDLE_AS_NOT_INPLACE(HandleTupleSelect);
+  // HANDLE_AS_NOT_INPLACE(HandleTupleSelect);
   // TODO(T20398): Clamp and Select could be inplace on operand index 1.
   HANDLE_AS_NOT_INPLACE(HandleClamp);
   HANDLE_AS_NOT_INPLACE(HandleSelect);

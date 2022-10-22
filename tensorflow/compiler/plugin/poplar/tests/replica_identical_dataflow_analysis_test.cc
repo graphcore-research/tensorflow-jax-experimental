@@ -316,16 +316,6 @@ ENTRY test {
   ROOT identical_root = f32[] add(identical_on_value, select)
 }
 )"};
-static const HloTestCase simple_tuple_select = {"simple_tuple_select", R"(
-HloModule test
-
-ENTRY test {
-  identical_pred = pred[] parameter(0)
-  identical_on_value = (f32[]) parameter(1)
-  identical_off_value = (f32[]) parameter(2)
-  ROOT select = (f32[]) tuple-select(identical_pred, identical_on_value, identical_off_value)
-}
-)"};
 static const HloTestCase compare_with_identical_operands = {
     "compare_with_identical_operands", R"(
 HloModule test
@@ -640,35 +630,6 @@ ENTRY test {
 
   select = f32[] select(identical_pred, differing_on_value, identical_off_value)
   ROOT differing_root = f32[] add(identical_off_value, select)
-}
-)"};
-static const HloTestCase tuple_select_with_differing_pred = {
-    "tuple_select_with_differing_pred", R"(
-HloModule test
-
-ENTRY test {
-  after-all = token[] after-all()
-  infeed = (pred[], token[]) infeed(token[] after-all), infeed_config="\010\001\022\005feed1\"\002\001\001"
-  differing_pred = pred[] get-tuple-element((pred[], token[]) infeed), index=0
-
-  identical_on_value = (f32[]) parameter(0)
-  identical_off_value = (f32[]) parameter(1)
-  ROOT select = (f32[]) tuple-select(differing_pred, identical_on_value, identical_off_value)
-}
-)"};
-static const HloTestCase tuple_select_with_differing_values = {
-    "tuple_select_with_differing_values", R"(
-HloModule test
-
-ENTRY test {
-  identical_pred = pred[] parameter(0)
-
-  after-all = token[] after-all()
-  infeed = ((f32[]), token[]) infeed(token[] after-all), infeed_config="\010\001\022\005feed1\"\002\001\001"
-  differing_on_value = (f32[]) get-tuple-element(((f32[]), token[]) infeed), index=0
-
-  identical_off_value = (f32[]) parameter(1)
-  ROOT select = (f32[]) tuple-select(identical_pred, differing_on_value, identical_off_value)
 }
 )"};
 static const HloTestCase compare_with_differing_operands = {
@@ -1152,38 +1113,6 @@ TEST_F(ReplicaIdenticalDataflowAnalysisTest, TupleConditionalValueCategory) {
                      ValueReplicaCategory::Differing);
   ASSERT_CATEGORY_EQ(analysis.ValueCategory(root, {1}),
                      ValueReplicaCategory::Identical);
-}
-const char* tuple_select_with_mixed_values = R"(
-HloModule test
-ENTRY test {
-  constant = f32[] constant(1)
-  differing0 = f32[] rng(constant, constant), distribution=rng_uniform
-
-  identical_pred = pred[] parameter(0)
-  identical0 = f32[] parameter(1)
-  identical1 = f32[] parameter(2)
-
-  mixed_on_value = (f32[], f32[], f32[]) tuple(differing0, identical0, identical1)
-  mixed_off_value = (f32[], f32[], f32[]) tuple(identical1, identical0, differing0)
-
-  ROOT select = (f32[], f32[], f32[]) tuple-select(identical_pred, mixed_on_value, mixed_off_value)
-}
-)";
-TEST_F(ReplicaIdenticalDataflowAnalysisTest, TupleSelectcValueCategory) {
-  ASSERT_TRUE(SetUpHloFlattenedModule(tuple_select_with_mixed_values));
-
-  ReplicaIdenticalDataflowAnalysis analysis;
-  TF_ASSERT_OK(analysis.Run(hlo_module_));
-
-  // Values should be identical if they're in both branches, so
-  // element1 should be replica identical element0 not.
-  auto* root = FindRootInstruction();
-  ASSERT_CATEGORY_EQ(analysis.ValueCategory(root, {0}),
-                     ValueReplicaCategory::Differing);
-  ASSERT_CATEGORY_EQ(analysis.ValueCategory(root, {1}),
-                     ValueReplicaCategory::Identical);
-  ASSERT_CATEGORY_EQ(analysis.ValueCategory(root, {2}),
-                     ValueReplicaCategory::Differing);
 }
 
 TEST_F(ReplicaIdenticalDataflowAnalysisTest, CanQuerySubComputations) {
@@ -1710,7 +1639,7 @@ INSTANTIATE_TEST_SUITE_P(
         implicit_global_all_gather, repeat_with_identical_io,
         repeat_single_element_tuple, while_with_identical_body_and_condition,
         conditional_with_identical_branches_and_pred, simple_pipeline,
-        simple_select, simple_tuple_select, compare_with_identical_operands,
+        simple_select, compare_with_identical_operands,
         switch_with_identical_branches_and_index,
         assume_equal_identical_operands, assume_equal_differing_operands),
     HloTestCaseName);
@@ -1723,8 +1652,7 @@ INSTANTIATE_TEST_SUITE_P(
         conditional_with_differing_branches, repeat_with_differing_inputs,
         repeat_with_differing_outputs, while_with_differing_condition,
         while_with_differing_body, select_with_differing_pred,
-        select_with_differing_values, tuple_select_with_differing_pred,
-        tuple_select_with_differing_values, compare_with_differing_operands,
+        select_with_differing_values, compare_with_differing_operands,
         pipeline_with_differing_gradient_accumulation_count,
         switch_with_differing_index, switch_with_differing_branches,
         dropout_with_seed_op, truncated_normal, replica_id),

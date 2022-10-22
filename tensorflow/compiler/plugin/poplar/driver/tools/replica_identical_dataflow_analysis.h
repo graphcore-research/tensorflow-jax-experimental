@@ -69,7 +69,6 @@ class ValuesIdenticalAcrossReplicasVisitor
   Status HandleFusion(const HloInstruction* inst) override;
   Status HandleGetTupleElement(const HloInstruction* inst) override;
   Status HandleTuple(const HloInstruction* inst) override;
-  Status HandleTupleSelect(const HloInstruction* inst) override;
   Status HandleWhile(const HloInstruction* inst) override;
 
 #define HandleAsReplicaIdentical(TYPE)                       \

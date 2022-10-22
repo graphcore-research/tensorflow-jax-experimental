@@ -101,7 +101,6 @@ StatusOr<bool> NeedsSpecificSeedType(const HloInstruction* inst) {
     case HloOpcode::kSlice:
     case HloOpcode::kTranspose:
     case HloOpcode::kTuple:
-    case HloOpcode::kTupleSelect:
     case HloOpcode::kWhile:
     case HloOpcode::kXor:
       return false;

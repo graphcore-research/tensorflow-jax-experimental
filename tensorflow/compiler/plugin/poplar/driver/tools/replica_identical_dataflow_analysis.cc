@@ -316,28 +316,6 @@ Status ValuesIdenticalAcrossReplicasVisitor::HandleTuple(
   return Status::OK();
 }
 
-Status ValuesIdenticalAcrossReplicasVisitor::HandleTupleSelect(
-    const HloInstruction* inst) {
-  // Since we don't know which tuple the select will return we can only
-  // say a value is identical if its in both on/off tuples and the pred
-  // is identical across replicas - so we get the same tuple across all
-  // replicas.
-  const bool sample_tuple_per_replica =
-      IsResultIdentical(value_category_mapping_.at(inst->operand(0)));
-  if (sample_tuple_per_replica) {
-    const ValueCategoryTree& on_value_categories =
-        value_category_mapping_.at(inst->operand(1));
-    const ValueCategoryTree& off_value_categories =
-        value_category_mapping_.at(inst->operand(2));
-
-    value_category_mapping_[inst] = MakeValuesIdenticalIfTreeElementsAre(
-        on_value_categories, off_value_categories);
-    return Status::OK();
-  }
-
-  return SetAllInstructionValuesToDiffering(inst);
-}
-
 Status ValuesIdenticalAcrossReplicasVisitor::HandleWhile(
     const HloInstruction* inst) {
   HloComputation* while_condition = inst->while_condition();
