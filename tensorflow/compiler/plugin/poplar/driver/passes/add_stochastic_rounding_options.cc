@@ -189,7 +189,6 @@ StatusOr<bool> NeedsSpecificSeedType(const HloInstruction* inst) {
       case HloOpcode::kSqrt:
       case HloOpcode::kSubtract:
       case HloOpcode::kTanh:
-      case HloOpcode::kTrace:
       case HloOpcode::kTriangularSolve:
         return true;
       default:

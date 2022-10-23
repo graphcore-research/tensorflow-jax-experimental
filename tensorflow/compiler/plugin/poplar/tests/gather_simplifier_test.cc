@@ -48,7 +48,7 @@ Literal CreateIotaLiteral(absl::Span<const int64_t> dims) {
 
   int i = 0;
   literal.Populate<NativeT>(
-      [&](const xla::DimensionVector& index) { return i++; });
+      [&](const auto& index) { return i++; });
   return literal;
 }
 

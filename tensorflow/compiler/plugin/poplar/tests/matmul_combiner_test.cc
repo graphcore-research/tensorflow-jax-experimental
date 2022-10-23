@@ -156,18 +156,18 @@ ENTRY main {
   // Check the expected value.
   auto lhs_shape = ShapeUtil::MakeShape(F32, {2, 4, 3});
   Literal lhs(lhs_shape);
-  lhs.Populate<float>([](const xla::DimensionVector& index) {
+  lhs.Populate<float>([](const auto& index) {
     return index[0] + index[1] * 10.0f + index[2] * 100.0f;
   });
 
   auto rhs_shape = ShapeUtil::MakeShape(F32, {2, 3, 5});
   Literal rhs(rhs_shape);
-  rhs.Populate<float>([](const xla::DimensionVector& index) {
+  rhs.Populate<float>([](const auto& index) {
     return index[0] * 0.1f + index[1] + index[2] * 0.01f;
   });
   auto rhs_shape2 = ShapeUtil::MakeShape(F32, {2, 3, 2});
   Literal rhs2(rhs_shape2);
-  rhs2.Populate<float>([](const xla::DimensionVector& index) {
+  rhs2.Populate<float>([](const auto& index) {
     return (index[0] + index[1] * 2 + index[2] * 6);
   });
 
@@ -253,18 +253,18 @@ ENTRY main {
   // Check the expected value.
   auto lhs_shape = ShapeUtil::MakeShape(F32, {2, 4, 3});
   Literal lhs(lhs_shape);
-  lhs.Populate<float>([](const xla::DimensionVector& index) {
+  lhs.Populate<float>([](const auto& index) {
     return index[0] + index[1] * 10.0f + index[2] * 100.0f;
   });
 
   auto lhs_shape2 = ShapeUtil::MakeShape(F32, {2, 6, 3});
   Literal lhs2(lhs_shape2);
-  lhs2.Populate<float>([](const xla::DimensionVector& index) {
+  lhs2.Populate<float>([](const auto& index) {
     return index[0] * 0.1f + index[1] + index[2] * 0.01f;
   });
   auto rhs_shape = ShapeUtil::MakeShape(F32, {2, 3, 5});
   Literal rhs(rhs_shape);
-  rhs.Populate<float>([](const xla::DimensionVector& index) {
+  rhs.Populate<float>([](const auto& index) {
     return (index[0] + index[1] * 2 + index[2] * 6);
   });
 
@@ -350,18 +350,18 @@ ENTRY main {
   // Check the expected value.
   auto lhs_shape = ShapeUtil::MakeShape(F32, {4, 3});
   Literal lhs(lhs_shape);
-  lhs.Populate<float>([](const xla::DimensionVector& index) {
+  lhs.Populate<float>([](const auto& index) {
     return index[0] + index[1] * 10.0f;
   });
 
   auto lhs_shape2 = ShapeUtil::MakeShape(F32, {6, 3});
   Literal lhs2(lhs_shape2);
-  lhs2.Populate<float>([](const xla::DimensionVector& index) {
+  lhs2.Populate<float>([](const auto& index) {
     return index[0] * 0.1f + index[1];
   });
   auto rhs_shape = ShapeUtil::MakeShape(F32, {3, 5});
   Literal rhs(rhs_shape);
-  rhs.Populate<float>([](const xla::DimensionVector& index) {
+  rhs.Populate<float>([](const auto& index) {
     return (index[0] + index[1] * 3);
   });
 

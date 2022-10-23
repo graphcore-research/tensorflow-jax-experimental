@@ -35,7 +35,7 @@ class PopItDevice : public XlaDevice {
       : XlaDevice(options, devopts) {
     // Sets extra information in the XlaDevice to help propagate errors
     // from non cpu streams.
-    UseGpuDeviceInfo();
+    UseAcceleratorDeviceInfo();
   }
 };
 

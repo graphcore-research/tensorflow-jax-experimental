@@ -111,19 +111,19 @@ ENTRY main {
   // Check the expected value.
   auto input_shape = ShapeUtil::MakeShape(F32, {100, 16});
   Literal input(input_shape);
-  input.Populate<float>([](const xla::DimensionVector& index) {
+  input.Populate<float>([](const auto& index) {
     return 0.01f * index[1] + index[0];
   });
 
   auto offset1_shape = ShapeUtil::MakeShape(S32, {24, 1});
   Literal offset1(offset1_shape);
   offset1.Populate<int32>(
-      [](const xla::DimensionVector& index) { return index[0] * 4; });
+      [](const auto& index) { return index[0] * 4; });
 
   auto offset2_shape = ShapeUtil::MakeShape(S32, {12, 1});
   Literal offset2(offset2_shape);
   offset2.Populate<int32>(
-      [](const xla::DimensionVector& index) { return 99 - index[0] * 5; });
+      [](const auto& index) { return 99 - index[0] * 5; });
 
   Literal result =
       Execute(
@@ -207,19 +207,19 @@ ENTRY main {
   // Check the expected value.
   auto input_shape = ShapeUtil::MakeShape(F32, {100, 16});
   Literal input(input_shape);
-  input.Populate<float>([](const xla::DimensionVector& index) {
+  input.Populate<float>([](const auto& index) {
     return 0.01f * index[1] + index[0];
   });
 
   auto offset1_shape = ShapeUtil::MakeShape(S32, {24, 1});
   Literal offset1(offset1_shape);
   offset1.Populate<int32>(
-      [](const xla::DimensionVector& index) { return index[0] * 4; });
+      [](const auto& index) { return index[0] * 4; });
 
   auto offset2_shape = ShapeUtil::MakeShape(S32, {12, 1});
   Literal offset2(offset2_shape);
   offset2.Populate<int32>(
-      [](const xla::DimensionVector& index) { return 99 - index[0] * 5; });
+      [](const auto& index) { return 99 - index[0] * 5; });
 
   auto offset3_shape = ShapeUtil::MakeShape(S32, {8, 1});
   Literal offset3(offset3_shape);

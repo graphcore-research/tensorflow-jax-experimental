@@ -107,11 +107,11 @@ TEST_F(ExtractOutsideCompilationPassTest, TwoInputsTwoOutputs) {
     Output identity2 = ops::Identity(s.WithOpName("identity2"), identity0);
     Output identity3 = ops::Identity(s.WithOpName("identity3"), identity1);
 
-    identity0.node()->AddAttr(kXlaOutsideCompilationAttrName, "outside");
+    identity0.node()->AddAttr(std::string{kXlaOutsideCompilationAttr}, "outside");
     identity0.node()->AddAttr(kXlaInferredShapesAttrName,
                               std::vector<PartialTensorShape>{{}});
 
-    identity1.node()->AddAttr(kXlaOutsideCompilationAttrName, "outside");
+    identity1.node()->AddAttr(std::string{kXlaOutsideCompilationAttr}, "outside");
     identity1.node()->AddAttr(kXlaInferredShapesAttrName,
                               std::vector<PartialTensorShape>{{}});
 
@@ -244,7 +244,7 @@ TEST_F(ExtractOutsideCompilationPassTest, PipelineRepeatCount) {
     auto sigmoid = ops::Sigmoid(s.WithOpName("sigmoid"), const0);
     auto identity = ops::Identity(s.WithOpName("identity"), sigmoid);
 
-    sigmoid.node()->AddAttr(kXlaOutsideCompilationAttrName, "outside");
+    sigmoid.node()->AddAttr(std::string{kXlaOutsideCompilationAttr}, "outside");
     sigmoid.node()->AddAttr(kXlaInferredShapesAttrName,
                             std::vector<PartialTensorShape>{{}});
 

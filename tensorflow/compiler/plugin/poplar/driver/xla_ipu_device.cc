@@ -33,7 +33,7 @@ class IpuDevice : public XlaDevice {
  public:
   IpuDevice(const SessionOptions& options, const XlaDevice::Options& devopts)
       : XlaDevice(options, devopts) {
-    UseGpuDeviceInfo();
+    UseAcceleratorDeviceInfo();
 
     IPUDevices::GetActiveDevices().Add(this);
   }

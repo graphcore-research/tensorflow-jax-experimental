@@ -30,7 +30,7 @@ StatusOr<Literal> GetTestInputs(PrimitiveType type, bool updates = false) {
   unsigned rows = updates ? 4 : 10;
   auto input_shape = ShapeUtil::MakeShape(F32, {rows, 4});
   Literal input(input_shape);
-  input.Populate<float>([](const xla::DimensionVector& index) {
+  input.Populate<float>([](const auto& index) {
     return 1.0f * index[1] + index[0];
   });
 

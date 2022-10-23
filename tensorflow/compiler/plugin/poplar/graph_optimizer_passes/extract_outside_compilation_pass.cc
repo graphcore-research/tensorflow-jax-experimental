@@ -581,7 +581,7 @@ xla::StatusOr<bool> CustomExtractOutsideCompilation(
     bool has_outside_compilation;
     std::vector<string> shape_inference_graphs;
     TF_RETURN_IF_ERROR(ExtractOutsideCompilationForFunction(
-        kXlaClusterAttrName, kXlaOutsideCompilationAttrName, xla_cluster_name,
+        kXlaClusterAttrName, std::string{kXlaOutsideCompilationAttr}, xla_cluster_name,
         func_name_attrs, func_name_attrs.name(), host_graph_func_name,
         host_compute_core, flr, fld, &shape_inference_graphs,
         &has_outside_compilation));
