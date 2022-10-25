@@ -299,7 +299,7 @@ HloComputation* ReplaceResourceUpdateFunction(
                              resource_update_grad_sink_arg_index);
 
   auto new_resource_update_comp = module->AddEmbeddedComputation(
-      resource_update_comp->CloneWithReplacements(std::move(replacements), {}));
+      resource_update_comp->CloneWithReplacements(&replacements, {}));
   resource_update->set_to_apply(new_resource_update_comp);
 
   VLOG(2) << "New resource update function: "
@@ -435,7 +435,7 @@ StatusOr<HloComputation*> ReplaceAccumulatorCaller(
 
   if (pipeline_stage) {
     auto new_pipeline_comp = module->AddEmbeddedComputation(
-        update_comp->CloneWithReplacements(std::move(update_repl)));
+        update_comp->CloneWithReplacements(&update_repl));
     VLOG(2) << "New pipeline stage computation: "
             << new_pipeline_comp->ToString();
     pipeline_stage->set_to_apply(new_pipeline_comp);
@@ -444,7 +444,7 @@ StatusOr<HloComputation*> ReplaceAccumulatorCaller(
     }
   }
   auto new_grad_comp = module->AddEmbeddedComputation(
-      grad_comp->CloneWithReplacements(std::move(grad_repl)));
+      grad_comp->CloneWithReplacements(&grad_repl));
   VLOG(2) << "New repeat computation: " << new_grad_comp->ToString();
   return new_grad_comp;
 }

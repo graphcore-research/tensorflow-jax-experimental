@@ -3761,7 +3761,7 @@ Status PoplarAlgebraicSimplifierVisitor::HandleReduceWindow(
       }
       auto map_computation = computation_->parent()->AddEmbeddedComputation(
           reduce_window->to_apply()->CloneWithReplacements(
-              std::move(replacements),
+              &replacements,
               /*extra_parameters=*/{}, nullptr, "clone", map_computation_root));
       auto map = computation_->AddInstruction(HloInstruction::CreateMap(
           reduce_window->shape(), {init_values[i], inputs[i]},
@@ -3781,7 +3781,7 @@ Status PoplarAlgebraicSimplifierVisitor::HandleReduceWindow(
     replacements[reduce_function_root] = nullptr;
     auto new_function = computation_->parent()->AddEmbeddedComputation(
         reduce_window->to_apply()->CloneWithReplacements(
-            std::move(replacements), /*extra_parameters=*/{},
+            &replacements, /*extra_parameters=*/{},
             /*context=*/nullptr,
             /*suffix=*/"clone",
             /*new_root=*/reduce_function_root->operand(0)));

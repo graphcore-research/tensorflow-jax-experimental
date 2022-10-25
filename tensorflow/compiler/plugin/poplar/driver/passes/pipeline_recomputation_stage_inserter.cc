@@ -356,7 +356,7 @@ StatusOr<bool> PipelineRecomputationStageInserter::RecomputePipeline(
     HloComputation* recomp_stage_comp =
         pipeline_comp->parent()->AddEmbeddedComputation(
             original_fwd_stage_comp->CloneWithReplacements(
-                std::move(replacements), {}, nullptr, "_recomputation"));
+                &replacements, {}, nullptr, "_recomputation"));
     VLOG(2) << "Recomputation comp for pipeline stage " << stage_id << ":";
     VLOG(2) << recomp_stage_comp->ToString();
 

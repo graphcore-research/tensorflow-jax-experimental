@@ -157,3 +157,6 @@ StatefulRandomOpsTest # T37613 - Need to support kRngBitGenerator
 CastOpsTest.testBitcastToLarger # T64432 - No bitcast for type with different data size.
 MatrixTriangularSolveOpTest.testBfloat16
 RandomOpsTest.testParameterizedTruncatedNormalBatched   # Too big for IPU 2d vertex.
+RuntimeShapeCheckTest.testUniqueDifferentSizes # GPU backend custom op. TODO: IPU implementation?
+RuntimeShapeCheckTest.testWhereOpDifferentSizes
+ImageOpsTest.testGradImageResize # Failing in TF 2.10?

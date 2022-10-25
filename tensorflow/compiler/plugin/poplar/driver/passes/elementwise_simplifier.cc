@@ -69,7 +69,7 @@ class ElementwiseSimplifierVisitor : public DfsHloRewriteVisitor {
 }  // namespace
 
 void ElementwiseSimplifierVisitor::ResetState(HloComputation* computation) {
-  changed_ = false;
+  MarkAsChanged();
   ResetVisitStates();
   computation_ = computation;
 }

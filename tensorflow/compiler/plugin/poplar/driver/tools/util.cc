@@ -1451,8 +1451,10 @@ StatusOr<HloInstruction*> AddParametersToCall(
   }
 
   // Clone the original computation, adding in the new parameter instructions.
+  absl::flat_hash_map<const HloInstruction*, std::unique_ptr<HloInstruction>>
+      replacements;
   std::unique_ptr<HloComputation> new_computation =
-      call_computation->CloneWithReplacements({}, new_parameter_ptrs, context);
+      call_computation->CloneWithReplacements(&replacements, new_parameter_ptrs, context);
 
   // Create an updated operand list for the call (old operands + new operands).
   std::vector<HloInstruction*> new_call_operands(call->operands().begin(),
