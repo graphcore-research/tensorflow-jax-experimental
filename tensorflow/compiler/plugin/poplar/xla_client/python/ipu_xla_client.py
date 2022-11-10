@@ -18,6 +18,9 @@ import os
 from tensorflow.compiler.xla.python import xla_client
 from tensorflow.compiler.plugin.poplar.xla_client.python import ipu_xla_client_pybind as _ipu_xla
 
+IpuDevice = _ipu_xla.IpuDevice
+IpuTargetType = _ipu_xla.IpuTargetType
+
 
 def _str2bool(v: str) -> bool:
   true_flags = ("yes", "true", "t", "1")

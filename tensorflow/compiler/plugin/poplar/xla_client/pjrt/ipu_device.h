@@ -23,6 +23,8 @@ limitations under the License.
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
 #include "tensorflow/compiler/xla/statusor.h"
 
+#include "tensorflow/compiler/plugin/poplar/driver/poplar_executor.h"
+
 namespace xla {
 namespace poplarplugin {
 
@@ -30,6 +32,18 @@ class IpuDevice : public PjRtStreamExecutorDevice {
  public:
   IpuDevice(int id, std::unique_ptr<LocalDeviceState> local_device_state,
             std::string device_kind);
+  /**
+   * @brief Get the Poplar Target containing all the information on the IPU hardware used.
+   */
+  const poplar::Target& GetPoplarTarget() const;
+
+  // IPU hardware properties.
+  poplar::TargetType targetType() const { return GetPoplarTarget().getTargetType(); }
+  std::string targetArchitecture() const { return GetPoplarTarget().getTargetArchString(); }
+  unsigned numTiles() const { return GetPoplarTarget().getTilesPerIPU(); }
+  unsigned numWorkerContexts() const { return GetPoplarTarget().getNumWorkerContexts(); }
+  unsigned bytesPerTile() const { return GetPoplarTarget().getBytesPerTile(); }
+  double tileClockFrequency() const { return GetPoplarTarget().getTileClockFrequency(); }
 };
 
 struct IpuConfig {

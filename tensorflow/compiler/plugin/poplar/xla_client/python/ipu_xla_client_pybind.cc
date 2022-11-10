@@ -27,6 +27,11 @@ namespace poplarplugin {
 namespace py = pybind11;
 
 PYBIND11_MODULE(ipu_xla_client_pybind, m) {
+  py::enum_<poplar::TargetType>(m, "IpuTargetType")
+      .value("CPU", poplar::TargetType::CPU)
+      .value("IPU", poplar::TargetType::IPU)
+      .value("IPU_MODEL", poplar::TargetType::IPU_MODEL);
+
   py::class_<IpuConfig> ipu_config(m, "IpuConfig");
   ipu_config.def(py::init<>()).def_readwrite("num_ipus", &IpuConfig::num_ipus);
   ipu_config.def(py::init<>()).def_readwrite("always_rearrange_copies_on_the_host", 
@@ -42,7 +47,22 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
 
   py::class_<IpuDevice, PjRtDevice, ClientAndPtr<IpuDevice>>(m, "IpuDevice")
       .def("__repr__", [](const IpuDevice& device) {
-        return absl::StrFormat("IpuDevice(id=%i)", device.id());
+        return absl::StrFormat("IpuDevice(id=%i, tiles=%i)", device.id(), device.numTiles());
+      })
+      .def_property_readonly("target_type", [](const IpuDevice& device) { 
+        return device.targetType();
+      })
+      .def_property_readonly("num_tiles", [](const IpuDevice& device) { 
+        return device.numTiles();
+      })
+      .def_property_readonly("num_worker_contexts", [](const IpuDevice& device) { 
+        return device.numWorkerContexts();
+      })
+      .def_property_readonly("bytes_per_tile", [](const IpuDevice& device) { 
+        return device.bytesPerTile();
+      })
+      .def_property_readonly("tile_clock_frequency", [](const IpuDevice& device) { 
+        return device.tileClockFrequency();
       });
 
   m.def(

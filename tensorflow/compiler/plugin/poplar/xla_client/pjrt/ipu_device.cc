@@ -135,6 +135,16 @@ IpuDevice::IpuDevice(int id,
     : PjRtStreamExecutorDevice(id, std::move(local_device_state),
                                /*device_kind=*/std::move(device_kind)) {}
 
+const poplar::Target& IpuDevice::GetPoplarTarget() const
+{
+  xla::StatusOr<LocalDeviceState*> local_device = this->GetLocalDeviceState();
+  CHECK(local_device.ok());
+  // TODO: cache to avoid calling (and blocking) executor?
+  auto* poplar_executor = static_cast<PoplarExecutor*>(
+    local_device.value()->executor()->implementation());
+  return poplar_executor->GetOrCreatePoplarTarget();
+}
+
 StatusOr<std::unique_ptr<PjRtClient>> GetIpuClient(bool asynchronous,
                                                    const IpuConfig& config) {
   IpuOptions options = ParseIpuConfig(config).ValueOrDie();

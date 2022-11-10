@@ -27,7 +27,7 @@ from absl.testing import parameterized
 import numpy as np
 
 from tensorflow.compiler.xla.python import xla_client
-from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client import make_ipu_client
+from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client import make_ipu_client, IpuDevice, IpuTargetType
 
 
 bfloat16 = xla_client.bfloat16
@@ -121,6 +121,31 @@ def TestFactory(xla_backend):
     """Convenience wrapper to create Numpy arrays with a np.bool_ dtype."""
     return np.array(*args, dtype=np.bool_, **kwargs)
 
+
+  class IpuBackendClientTest(ComputationTest):
+    """IPU backend/client tests."""
+
+    def testIpuDevicePlatform(self):
+      device = self.backend.local_devices()[0]
+      assert self.backend.platform == "ipu"
+      assert device.platform == "ipu"
+      assert isinstance(device, IpuDevice)
+      assert repr(device) == f"IpuDevice(id={device.id}, tiles={device.num_tiles})"
+
+    def testIpuDeviceHardwareProperties(self):
+      device = self.backend.local_devices()[0]
+      assert device.target_type in {IpuTargetType.IPU_MODEL, IpuTargetType.IPU}
+      if device.target_type == IpuTargetType.IPU:
+        assert device.num_tiles == 1472
+      if device.target_type == IpuTargetType.IPU_MODEL:
+        assert device.num_tiles in {4, 8}
+      assert device.num_worker_contexts == 6
+      assert device.bytes_per_tile == 638976
+      assert device.tile_clock_frequency == 1850000000
+      
+  tests.append(IpuBackendClientTest)
+
+
   class ComputationPrinting(absltest.TestCase):
 
     def setUp(self):
@@ -187,6 +212,7 @@ def TestFactory(xla_backend):
         self.assertIsNone(fingerprint)
 
   tests.append(ComputationPrinting)
+
 
   class ComputationsWithConstantsTest(ComputationTest):
     """IPU backend skipping constant ops."""
