@@ -1,158 +1,45 @@
-<div align="center">
-  <img src="https://www.tensorflow.org/images/tf_logo_horizontal.png">
-</div>
+# :red_circle: **Non-official experimental** :red_circle: IPU XLA TensorFlow/JAX XLA backend
 
-[![Python](https://img.shields.io/pypi/pyversions/tensorflow.svg?style=plastic)](https://badge.fury.io/py/tensorflow)
-[![PyPI](https://badge.fury.io/py/tensorflow.svg)](https://badge.fury.io/py/tensorflow)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.4724125.svg)](https://doi.org/10.5281/zenodo.4724125)
+This repository is **a non-official experimental** fork of [Graphcore IPU TensorFlow repository](https://github.com/graphcore/tensorflow) (the latter being a modified version of TensorFlow supporting Graphcore IPUs). 
 
-**`Documentation`** |
-------------------- |
-[![Documentation](https://img.shields.io/badge/api-reference-blue.svg)](https://www.tensorflow.org/api_docs/) |
+The goal of this repository is to implement the additional PRJT layer on top of Graphcore Poplar XLA backend, the former being necessary to compile and run JAX on IPUs. This is **NOT** an additional non-official TensorFlow version for IPUs. 
 
-[TensorFlow](https://www.tensorflow.org/) is an end-to-end open source platform
-for machine learning. It has a comprehensive, flexible ecosystem of
-[tools](https://www.tensorflow.org/resources/tools),
-[libraries](https://www.tensorflow.org/resources/libraries-extensions), and
-[community](https://www.tensorflow.org/community) resources that lets
-researchers push the state-of-the-art in ML and developers easily build and
-deploy ML-powered applications.
+[Experimental JAX on IPU](https://github.com/graphcore-research/jax-mk2-experimental) is directly pulling the XLA backend source code from this repository, and compiling the proper `jaxlib` Python binary wheel. Independent compilation of this repository using `bazel` is only supported in order to directly test bug fixes or additional features on the IPU XLA backend or PJRT client.
 
-TensorFlow was originally developed by researchers and engineers working on the
-Google Brain team within Google's Machine Intelligence Research organization to
-conduct machine learning and deep neural networks research. The system is
-general enough to be applicable in a wide variety of other domains, as well.
+## Compilation
 
-TensorFlow provides stable [Python](https://www.tensorflow.org/api_docs/python)
-and [C++](https://www.tensorflow.org/api_docs/cc) APIs, as well as
-non-guaranteed backward compatible API for
-[other languages](https://www.tensorflow.org/api_docs).
+The stable branch requires the following configuration: Ubuntu 20.04, [Graphcore Poplar SDK 3.1](https://www.graphcore.ai/posts/poplar-sdk-3.1-now-available) and [Bazel 5.2.0](https://docs.bazel.build/versions/5.2.0/install.html).
 
-Keep up-to-date with release announcements and security updates by subscribing
-to
-[announce@tensorflow.org](https://groups.google.com/a/tensorflow.org/forum/#!forum/announce).
-See all the [mailing lists](https://www.tensorflow.org/community/forums).
+For the development of `jaxlib` on IPU, the targets of interest are:
+* IPU Poplar XLA backend: `//tensorflow/compiler/plugin:plugin`
+* XLA Python client: `//tensorflow/compiler/xla/python:xla_client`
+* IPU PJRT client: `//tensorflow/compiler/plugin/poplar/xla_client:ipu_xla_client`
 
-## Install
-
-See the [TensorFlow install guide](https://www.tensorflow.org/install) for the
-[pip package](https://www.tensorflow.org/install/pip), to
-[enable GPU support](https://www.tensorflow.org/install/gpu), use a
-[Docker container](https://www.tensorflow.org/install/docker), and
-[build from source](https://www.tensorflow.org/install/source).
-
-To install the current release, which includes support for
-[CUDA-enabled GPU cards](https://www.tensorflow.org/install/gpu) *(Ubuntu and
-Windows)*:
-
+These targets can be compiled as following:
+```bash
+export TF_POPLAR_BASE=...  # Poplar install path
+python configure.py
+bazel build --config=monolithic //tensorflow/compiler/plugin/poplar/xla_client:ipu_xla_client
 ```
-$ pip install tensorflow
+Note that the option `--config=monolithic` is here to reflect the compilation configuration of `jaxlib`, which generates a single monolithic shared library.
+
+## Running unit tests
+
+For the purpose of supporting JAX, here are the test targets of interest:
+
+* Poplar XLA backend (IPU specific) unit tests: `//tensorflow/compiler/plugin/poplar:all_tests`
+* XLA general unit tests, using IPU Poplar backend: `//tensorflow/compiler/tests:poplar_tests`
+* XLA client unit tests: `//tensorflow/compiler/xla/client/lib:poplar_tests`
+* IPU PJRT client unit tests: `//tensorflow/compiler/plugin/poplar/xla_client/tests:all_tests`
+
+All the previous test targets can be run on the IPU model using the following commands: 
+```bash
+bazel test --config=monolithic --jobs=16 --verbose_failures --cache_test_results=no --test_timeout=240,360,900,3600 --test_size_filters=small,medium,large --flaky_test_attempts=1 --test_env='TF_POPLAR_FLAGS=--use_ipu_model --ipu_model_tiles=8 --max_compilation_threads=1 --max_infeed_threads=2' //tensorflow/compiler/plugin/poplar/xla_client/tests:all_tests
 ```
 
-A smaller CPU-only package is also available:
+Failing unit tests should be documented as a Github ticket.
 
-```
-$ pip install tensorflow-cpu
-```
+## Additional documentation
 
-To update TensorFlow to the latest version, add `--upgrade` flag to the above
-commands.
+* [Original TensorFlow readme;](README_ORIGINAL.md)
 
-*Nightly binaries are available for testing using the
-[tf-nightly](https://pypi.python.org/pypi/tf-nightly) and
-[tf-nightly-cpu](https://pypi.python.org/pypi/tf-nightly-cpu) packages on PyPi.*
-
-#### *Try your first TensorFlow program*
-
-```shell
-$ python
-```
-
-```python
->>> import tensorflow as tf
->>> tf.add(1, 2).numpy()
-3
->>> hello = tf.constant('Hello, TensorFlow!')
->>> hello.numpy()
-b'Hello, TensorFlow!'
-```
-
-For more examples, see the
-[TensorFlow tutorials](https://www.tensorflow.org/tutorials/).
-
-## Contribution guidelines
-
-**If you want to contribute to TensorFlow, be sure to review the
-[contribution guidelines](CONTRIBUTING.md). This project adheres to TensorFlow's
-[code of conduct](CODE_OF_CONDUCT.md). By participating, you are expected to
-uphold this code.**
-
-**We use [GitHub issues](https://github.com/tensorflow/tensorflow/issues) for
-tracking requests and bugs, please see
-[TensorFlow Discuss](https://groups.google.com/a/tensorflow.org/forum/#!forum/discuss)
-for general questions and discussion, and please direct specific questions to
-[Stack Overflow](https://stackoverflow.com/questions/tagged/tensorflow).**
-
-The TensorFlow project strives to abide by generally accepted best practices in
-open-source software development:
-
-[![Fuzzing Status](https://oss-fuzz-build-logs.storage.googleapis.com/badges/tensorflow.svg)](https://bugs.chromium.org/p/oss-fuzz/issues/list?sort=-opened&can=1&q=proj:tensorflow)
-[![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/1486/badge)](https://bestpractices.coreinfrastructure.org/projects/1486)
-[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-v1.4%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md)
-
-## Continuous build status
-
-You can find more community-supported platforms and configurations in the
-[TensorFlow SIG Build community builds table](https://github.com/tensorflow/build#community-supported-tensorflow-builds).
-
-### Official Builds
-
-Build Type                    | Status                                                                                                                                                                           | Artifacts
------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------
-**Linux CPU**                 | [![Status](https://storage.googleapis.com/tensorflow-kokoro-build-badges/ubuntu-cc.svg)](https://storage.googleapis.com/tensorflow-kokoro-build-badges/ubuntu-cc.html)           | [PyPI](https://pypi.org/project/tf-nightly/)
-**Linux GPU**                 | [![Status](https://storage.googleapis.com/tensorflow-kokoro-build-badges/ubuntu-gpu-py3.svg)](https://storage.googleapis.com/tensorflow-kokoro-build-badges/ubuntu-gpu-py3.html) | [PyPI](https://pypi.org/project/tf-nightly-gpu/)
-**Linux XLA**                 | [![Status](https://storage.googleapis.com/tensorflow-kokoro-build-badges/ubuntu-xla.svg)](https://storage.googleapis.com/tensorflow-kokoro-build-badges/ubuntu-xla.html)         | TBA
-**macOS**                     | [![Status](https://storage.googleapis.com/tensorflow-kokoro-build-badges/macos-py2-cc.svg)](https://storage.googleapis.com/tensorflow-kokoro-build-badges/macos-py2-cc.html)     | [PyPI](https://pypi.org/project/tf-nightly/)
-**Windows CPU**               | [![Status](https://storage.googleapis.com/tensorflow-kokoro-build-badges/windows-cpu.svg)](https://storage.googleapis.com/tensorflow-kokoro-build-badges/windows-cpu.html)       | [PyPI](https://pypi.org/project/tf-nightly/)
-**Windows GPU**               | [![Status](https://storage.googleapis.com/tensorflow-kokoro-build-badges/windows-gpu.svg)](https://storage.googleapis.com/tensorflow-kokoro-build-badges/windows-gpu.html)       | [PyPI](https://pypi.org/project/tf-nightly-gpu/)
-**Android**                   | [![Status](https://storage.googleapis.com/tensorflow-kokoro-build-badges/android.svg)](https://storage.googleapis.com/tensorflow-kokoro-build-badges/android.html)               | [Download](https://bintray.com/google/tensorflow/tensorflow/_latestVersion)
-**Raspberry Pi 0 and 1**      | [![Status](https://storage.googleapis.com/tensorflow-kokoro-build-badges/rpi01-py3.svg)](https://storage.googleapis.com/tensorflow-kokoro-build-badges/rpi01-py3.html)           | [Py3](https://storage.googleapis.com/tensorflow-nightly/tensorflow-1.10.0-cp34-none-linux_armv6l.whl)
-**Raspberry Pi 2 and 3**      | [![Status](https://storage.googleapis.com/tensorflow-kokoro-build-badges/rpi23-py3.svg)](https://storage.googleapis.com/tensorflow-kokoro-build-badges/rpi23-py3.html)           | [Py3](https://storage.googleapis.com/tensorflow-nightly/tensorflow-1.10.0-cp34-none-linux_armv7l.whl)
-**Libtensorflow MacOS CPU**   | Status Temporarily Unavailable                                                                                                                                                   | [Nightly Binary](https://storage.googleapis.com/libtensorflow-nightly/prod/tensorflow/release/macos/latest/macos_cpu_libtensorflow_binaries.tar.gz) [Official GCS](https://storage.googleapis.com/tensorflow/)
-**Libtensorflow Linux CPU**   | Status Temporarily Unavailable                                                                                                                                                   | [Nightly Binary](https://storage.googleapis.com/libtensorflow-nightly/prod/tensorflow/release/ubuntu_16/latest/cpu/ubuntu_cpu_libtensorflow_binaries.tar.gz) [Official GCS](https://storage.googleapis.com/tensorflow/)
-**Libtensorflow Linux GPU**   | Status Temporarily Unavailable                                                                                                                                                   | [Nightly Binary](https://storage.googleapis.com/libtensorflow-nightly/prod/tensorflow/release/ubuntu_16/latest/gpu/ubuntu_gpu_libtensorflow_binaries.tar.gz) [Official GCS](https://storage.googleapis.com/tensorflow/)
-**Libtensorflow Windows CPU** | Status Temporarily Unavailable                                                                                                                                                   | [Nightly Binary](https://storage.googleapis.com/libtensorflow-nightly/prod/tensorflow/release/windows/latest/cpu/windows_cpu_libtensorflow_binaries.tar.gz) [Official GCS](https://storage.googleapis.com/tensorflow/)
-**Libtensorflow Windows GPU** | Status Temporarily Unavailable                                                                                                                                                   | [Nightly Binary](https://storage.googleapis.com/libtensorflow-nightly/prod/tensorflow/release/windows/latest/gpu/windows_gpu_libtensorflow_binaries.tar.gz) [Official GCS](https://storage.googleapis.com/tensorflow/)
-
-## Resources
-
-*   [TensorFlow.org](https://www.tensorflow.org)
-*   [TensorFlow Tutorials](https://www.tensorflow.org/tutorials/)
-*   [TensorFlow Official Models](https://github.com/tensorflow/models/tree/master/official)
-*   [TensorFlow Examples](https://github.com/tensorflow/examples)
-*   [DeepLearning.AI TensorFlow Developer Professional Certificate](https://www.coursera.org/specializations/tensorflow-in-practice)
-*   [TensorFlow: Data and Deployment from Coursera](https://www.coursera.org/specializations/tensorflow-data-and-deployment)
-*   [Getting Started with TensorFlow 2 from Coursera](https://www.coursera.org/learn/getting-started-with-tensor-flow2)
-*   [TensorFlow: Advanced Techniques from Coursera](https://www.coursera.org/specializations/tensorflow-advanced-techniques)
-*   [TensorFlow 2 for Deep Learning Specialization from Coursera](https://www.coursera.org/specializations/tensorflow2-deeplearning)
-*   [Intro to TensorFlow for A.I, M.L, and D.L from Coursera](https://www.coursera.org/learn/introduction-tensorflow)
-*   [Intro to TensorFlow for Deep Learning from Udacity](https://www.udacity.com/course/intro-to-tensorflow-for-deep-learning--ud187)
-*   [Introduction to TensorFlow Lite from Udacity](https://www.udacity.com/course/intro-to-tensorflow-lite--ud190)
-*   [Machine Learning with TensorFlow on GCP](https://www.coursera.org/specializations/machine-learning-tensorflow-gcp)
-*   [TensorFlow Codelabs](https://codelabs.developers.google.com/?cat=TensorFlow)
-*   [TensorFlow Blog](https://blog.tensorflow.org)
-*   [Learn ML with TensorFlow](https://www.tensorflow.org/resources/learn-ml)
-*   [TensorFlow Twitter](https://twitter.com/tensorflow)
-*   [TensorFlow YouTube](https://www.youtube.com/channel/UC0rqucBdTuFTjJiefW5t-IQ)
-*   [TensorFlow model optimization roadmap](https://www.tensorflow.org/model_optimization/guide/roadmap)
-*   [TensorFlow White Papers](https://www.tensorflow.org/about/bib)
-*   [TensorBoard Visualization Toolkit](https://github.com/tensorflow/tensorboard)
-*   [TensorFlow Code Search](https://cs.opensource.google/tensorflow/tensorflow)
-
-Learn more about the
-[TensorFlow community](https://www.tensorflow.org/community) and how to
-[contribute](https://www.tensorflow.org/community/contribute).
-
-## License
-
-[Apache License 2.0](LICENSE)
