@@ -1,0 +1,31 @@
+name: CI_tensorflow_xla_ipu_model
+
+env:
+  GIT_MAIN_BRANCH: "jaxlibv0.3.15/sdk-release-3.1-lean-jax"
+
+# Controls when the workflow will run.
+on:
+  push:
+    branches: [ "jaxlibv0.3.15/sdk-release-3.1-lean-jax" ]
+  pull_request:
+    branches: [ "jaxlibv0.3.15/sdk-release-3.1-lean-jax" ]
+
+  # Allows you to run this workflow manually from the Actions tab.
+  workflow_dispatch:
+
+jobs:
+  lint_and_typecheck:
+    runs-on: [self-hosted, Linux, X64, 20.04, Ubuntu]
+    timeout-minutes: 10
+    steps:
+      - name: Cancel previous
+        uses: styfle/cancel-workflow-action@0.10.0
+        with:
+          access_token: ${{ github.token }}
+        if: ${{github.ref != 'refs/head/jaxlibv0.3.15/sdk-release-3.1-lean-jax'}}
+      - uses: actions/checkout@v3
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.8
+      - uses: pre-commit/action@v3.0.0

@@ -51,13 +51,15 @@ class IpuExecutor : public PoplarExecutor {
   void ConnectInfeedsToStreamCallback(
       const TranslatedInfeedInfos& infeed_infos) override;
 
-  Status SetupInfeedReplication(const TranslatedInfeedInfos& infeed_infos) override;
+  Status SetupInfeedReplication(
+      const TranslatedInfeedInfos& infeed_infos) override;
 
   void ConnectOutfeedToStreamCallback(
       const TranslatedOutfeedInfos& outfeed_infos) override;
 
   void LaunchInfeedThreads(const TranslatedInfeedInfos& infeed_infos) override;
-  void LaunchOutfeedThreads(const TranslatedOutfeedInfos& outfeed_infos) override;
+  void LaunchOutfeedThreads(
+      const TranslatedOutfeedInfos& outfeed_infos) override;
 };
 
 }  // namespace poplarplugin

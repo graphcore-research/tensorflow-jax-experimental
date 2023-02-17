@@ -17,7 +17,6 @@ limitations under the License.
 #define TENSORFLOW_COMPILER_PLUGIN_POPLAR_XLA_CLIENT_IPU_BACKEND_IPU_TRANSFER_MANAGER_H_
 
 #include "absl/synchronization/notification.h"
-
 #include "tensorflow/compiler/xla/service/cpu/xfeed_manager.h"
 #include "tensorflow/compiler/xla/service/generic_transfer_manager.h"
 #include "tensorflow/core/platform/macros.h"

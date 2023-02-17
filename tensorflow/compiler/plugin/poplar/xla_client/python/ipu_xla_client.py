@@ -31,8 +31,10 @@ def _str2bool(v: str) -> bool:
   elif v.lower() in false_flags:
     return False
   else:
-    raise ValueError(f"Invalid environment value: {v}, "
-                     f"should be among {true_flags} or {false_flags}.")
+    raise ValueError(
+        f"Invalid environment value: {v}, "
+        f"should be among {true_flags} or {false_flags}."
+    )
 
 
 def make_ipu_client():
@@ -45,7 +47,7 @@ def make_ipu_client():
     ipu_config.num_ipus = int(num_ipus)
   else:
     ipu_config.num_ipus = 1
-  
+
   always_rearrange_copies_on_the_host = \
       os.getenv('XLA_IPU_PLATFORM_ALWAYS_RERRANGE_COPIES_ON_THE_HOST')
   if always_rearrange_copies_on_the_host:
@@ -71,11 +73,11 @@ def make_ipu_client():
   if place_ops_on_io_tiles:
     ipu_config.place_ops_on_io_tiles = \
         _str2bool(place_ops_on_io_tiles)
-  
+
   if (ipu_config.place_ops_on_io_tiles and ipu_config.num_io_tiles <= 0):
     raise ValueError("Cannot place ops on I/O tiles when "
                      "num_io_tiles <= 0")
-  
+
   io_tile_available_memory_proportion = \
       os.getenv('XLA_IPU_PLATFORM_IO_TILE_AVAILABLE_MEMORY_PROPORTION')
   if io_tile_available_memory_proportion:

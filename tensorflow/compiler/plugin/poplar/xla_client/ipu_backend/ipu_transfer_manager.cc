@@ -12,11 +12,11 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+#include "tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/ipu_transfer_manager.h"
+
 #include <memory>
 
 #include "tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/ipu_platform_id.h"
-#include "tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/ipu_transfer_manager.h"
-
 #include "tensorflow/core/lib/gtl/cleanup.h"
 
 namespace xla {

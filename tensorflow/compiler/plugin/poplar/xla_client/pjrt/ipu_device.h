@@ -19,11 +19,10 @@ limitations under the License.
 #include <memory>
 #include <string>
 
+#include "tensorflow/compiler/plugin/poplar/driver/poplar_executor.h"
 #include "tensorflow/compiler/xla/pjrt/local_device_state.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
 #include "tensorflow/compiler/xla/statusor.h"
-
-#include "tensorflow/compiler/plugin/poplar/driver/poplar_executor.h"
 
 namespace xla {
 namespace poplarplugin {
@@ -33,17 +32,26 @@ class IpuDevice : public PjRtStreamExecutorDevice {
   IpuDevice(int id, std::unique_ptr<LocalDeviceState> local_device_state,
             std::string device_kind);
   /**
-   * @brief Get the Poplar Target containing all the information on the IPU hardware used.
+   * @brief Get the Poplar Target containing all the information on the IPU
+   * hardware used.
    */
   const poplar::Target& GetPoplarTarget() const;
 
   // IPU hardware properties.
-  poplar::TargetType targetType() const { return GetPoplarTarget().getTargetType(); }
-  std::string targetArchitecture() const { return GetPoplarTarget().getTargetArchString(); }
+  poplar::TargetType targetType() const {
+    return GetPoplarTarget().getTargetType();
+  }
+  std::string targetArchitecture() const {
+    return GetPoplarTarget().getTargetArchString();
+  }
   unsigned numTiles() const { return GetPoplarTarget().getTilesPerIPU(); }
-  unsigned numWorkerContexts() const { return GetPoplarTarget().getNumWorkerContexts(); }
+  unsigned numWorkerContexts() const {
+    return GetPoplarTarget().getNumWorkerContexts();
+  }
   unsigned bytesPerTile() const { return GetPoplarTarget().getBytesPerTile(); }
-  double tileClockFrequency() const { return GetPoplarTarget().getTileClockFrequency(); }
+  double tileClockFrequency() const {
+    return GetPoplarTarget().getTileClockFrequency();
+  }
 };
 
 struct IpuConfig {
@@ -65,16 +73,16 @@ struct IpuConfig {
   /* Whether to place TensorFlow I/O operations on the I/O tiles.*/
   bool place_ops_on_io_tiles = false;
 
-  /* Proportion of I/O tiles' memory which can be used to store data in, with the
-  remaining memory assumed to be used by code. If the size of data which is to
-  be stored on I/O tiles exceeds the total I/O tiles memory multiplied by this
-  proportion, then a warning message will appear and the operations will not
-  be placed on I/O tiles.*/
+  /* Proportion of I/O tiles' memory which can be used to store data in, with
+  the remaining memory assumed to be used by code. If the size of data which is
+  to be stored on I/O tiles exceeds the total I/O tiles memory multiplied by
+  this proportion, then a warning message will appear and the operations will
+  not be placed on I/O tiles.*/
   double io_tile_available_memory_proportion = 0.9;
 };
 
-StatusOr<std::unique_ptr<PjRtClient>> GetIpuClient(
-    bool asynchronous, const IpuConfig& config);
+StatusOr<std::unique_ptr<PjRtClient>> GetIpuClient(bool asynchronous,
+                                                   const IpuConfig& config);
 
 }  // namespace poplarplugin
 }  // namespace xla

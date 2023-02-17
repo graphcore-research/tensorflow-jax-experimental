@@ -26,10 +26,10 @@ namespace poplarplugin {
 
 /**
  * Our Tensorflow updates ExecutableBuildOptions in XlaCompilationCache
- * the ExecutableBuildOptions passes through ExecutionOptions->HloModuleConfig->HloModule
- * so poplar compiler could build InputOutputAliasingMap in CompilerResources
- * JAX jit does not update ExecutableBuildOptions
- * it can only annotate jit donate_argnums to update the
+ * the ExecutableBuildOptions passes through
+ * ExecutionOptions->HloModuleConfig->HloModule so poplar compiler could build
+ * InputOutputAliasingMap in CompilerResources JAX jit does not update
+ * ExecutableBuildOptions it can only annotate jit donate_argnums to update the
  * input_output_alias_config_ in HloModule
  * this pass use this info to update HloModuleConfig in HloModule
  * thus enables Visitor to deal with resource & resource update
@@ -39,8 +39,8 @@ class InputOutputAliasing : public HloModulePass {
   absl::string_view name() const override { return "input-output-aliasing"; }
   using HloPassInterface::Run;
   StatusOr<bool> Run(
-    HloModule* module,
-    const absl::flat_hash_set<absl::string_view>& execution_threads) override;
+      HloModule* module,
+      const absl::flat_hash_set<absl::string_view>& execution_threads) override;
 };
 
 }  // namespace poplarplugin

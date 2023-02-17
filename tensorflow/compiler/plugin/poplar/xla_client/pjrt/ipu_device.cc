@@ -123,7 +123,8 @@ StatusOr<IpuOptions> ParseIpuConfig(const IpuConfig& config) {
   // IOTilesConfig
   options.set_num_io_tiles(config.num_io_tiles);
   options.set_place_ops_on_io_tiles(config.place_ops_on_io_tiles);
-  options.set_io_tile_available_memory_proportion(config.io_tile_available_memory_proportion);
+  options.set_io_tile_available_memory_proportion(
+      config.io_tile_available_memory_proportion);
 
   return options;
 }
@@ -135,13 +136,12 @@ IpuDevice::IpuDevice(int id,
     : PjRtStreamExecutorDevice(id, std::move(local_device_state),
                                /*device_kind=*/std::move(device_kind)) {}
 
-const poplar::Target& IpuDevice::GetPoplarTarget() const
-{
+const poplar::Target& IpuDevice::GetPoplarTarget() const {
   xla::StatusOr<LocalDeviceState*> local_device = this->GetLocalDeviceState();
   CHECK(local_device.ok());
   // TODO: cache to avoid calling (and blocking) executor?
   auto* poplar_executor = static_cast<PoplarExecutor*>(
-    local_device.value()->executor()->implementation());
+      local_device.value()->executor()->implementation());
   return poplar_executor->GetOrCreatePoplarTarget();
 }
 

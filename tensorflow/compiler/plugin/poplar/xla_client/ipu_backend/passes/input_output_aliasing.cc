@@ -15,12 +15,12 @@ limitations under the License.
 
 #include "tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/passes/input_output_aliasing.h"
 
+#include <vector>
+
 #include "tensorflow/compiler/xla/service/hlo_computation.h"
 #include "tensorflow/compiler/xla/service/hlo_input_output_alias_config.h"
 #include "tensorflow/compiler/xla/service/hlo_instruction.h"
 #include "tensorflow/core/lib/core/status.h"
-
-#include <vector>
 
 namespace xla {
 namespace poplarplugin {
@@ -51,25 +51,27 @@ StatusOr<bool> InputOutputAliasing::Run(
 
   // Set resource update through io_alias_config
   module->input_output_alias_config().ForEachAlias(
-    [&](const ShapeIndex& output_index, const HloInputOutputAliasConfig::Alias& alias) {
-      // Require non-tuple parameter
-      CHECK(alias.parameter_index.empty());
-      resource_update_to_input_index.push_back(alias.parameter_number);
-    }
-  );
+      [&](const ShapeIndex& output_index,
+          const HloInputOutputAliasConfig::Alias& alias) {
+        // Require non-tuple parameter
+        CHECK(alias.parameter_index.empty());
+        resource_update_to_input_index.push_back(alias.parameter_number);
+      });
   config.set_resource_update_to_input_index(resource_update_to_input_index);
 
   // Set resource update as resource
   config.set_resource_input_indices(resource_update_to_input_index);
 
   // Set all resource as initialized
-  resource_input_initialized.resize(resource_update_to_input_index.size(), true);
+  resource_input_initialized.resize(resource_update_to_input_index.size(),
+                                    true);
   config.set_resource_input_initialized(resource_input_initialized);
 
   // Set the reset parameters as argument
   parameter_indices.resize(n_parameters);
   absl::c_iota(parameter_indices, 0);
-  argument_input_indices.reserve(n_parameters - resource_input_initialized.size());
+  argument_input_indices.reserve(n_parameters -
+                                 resource_input_initialized.size());
   absl::c_set_difference(parameter_indices, resource_update_to_input_index,
                          std::back_inserter(argument_input_indices));
   config.set_argument_input_indices(argument_input_indices);

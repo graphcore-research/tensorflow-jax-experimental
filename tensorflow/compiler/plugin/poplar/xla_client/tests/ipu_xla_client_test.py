@@ -29,7 +29,6 @@ import numpy as np
 from tensorflow.compiler.xla.python import xla_client
 from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client import make_ipu_client, IpuDevice, IpuTargetType
 
-
 bfloat16 = xla_client.bfloat16
 ops = xla_client.ops
 FLAGS = flags.FLAGS
@@ -39,13 +38,17 @@ FLAGS = flags.FLAGS
 # pylint: disable=g-complex-comprehension
 
 
-def make_parameter(c, arr, idx = 0):
+def make_parameter(c, arr, idx=0):
   """Make ops parameter, necessary for IPU testing. 
   """
   # We need to modify slightly the official XLA client unit tests:
   # 1. Poplar Compiler will Skip engine compilation if output is constant(compute by CPU)， So test as Parameter input rather than constant
   # 2. Parameter's shape with layout will cause an check error when IPU, so call with_major_to_minor_layout_if_absent to ge a default layout
-  return ops.Parameter(c, idx, xla_client.shape_from_pyval(arr).with_major_to_minor_layout_if_absent())
+  return ops.Parameter(
+      c, idx,
+      xla_client.shape_from_pyval(arr).with_major_to_minor_layout_if_absent()
+  )
+
 
 def make_parameters(c, arrs):
   return [make_parameter(c, arr, idx) for idx, arr in enumerate(arrs)]
@@ -78,7 +81,8 @@ def TestFactory(xla_backend):
     def _Execute(self, c, arguments):
       compiled_c = self.backend.compile(c.build())
       return xla_client.execute_with_python_values(
-          compiled_c, arguments, backend=self.backend)
+          compiled_c, arguments, backend=self.backend
+      )
 
     def _ExecuteAndAssertWith(self, assert_func, c, arguments, expected):
       assert expected is not None
@@ -92,18 +96,15 @@ def TestFactory(xla_backend):
         assert_func(result, e)
 
     def _ExecuteAndCompareExact(self, c, arguments=(), expected=None):
-      self._ExecuteAndAssertWith(np.testing.assert_equal, c, arguments,
-                                 expected)
+      self._ExecuteAndAssertWith(np.testing.assert_equal, c, arguments, expected)
 
-    def _ExecuteAndCompareClose(self,
-                                c,
-                                arguments=(),
-                                expected=None,
-                                rtol=1e-4,
-                                atol=0):
+    def _ExecuteAndCompareClose(
+        self, c, arguments=(), expected=None, rtol=1e-4, atol=0
+    ):
       self._ExecuteAndAssertWith(
-          functools.partial(np.testing.assert_allclose, rtol=rtol, atol=atol),
-          c, arguments, expected)
+          functools.partial(np.testing.assert_allclose, rtol=rtol, atol=atol), c,
+          arguments, expected
+      )
 
   def NumpyArrayF32(*args, **kwargs):
     """Convenience wrapper to create Numpy arrays with a np.float32 dtype."""
@@ -120,7 +121,6 @@ def TestFactory(xla_backend):
   def NumpyArrayBool(*args, **kwargs):
     """Convenience wrapper to create Numpy arrays with a np.bool_ dtype."""
     return np.array(*args, dtype=np.bool_, **kwargs)
-
 
   class IpuBackendClientTest(ComputationTest):
     """IPU backend/client tests."""
@@ -142,9 +142,8 @@ def TestFactory(xla_backend):
       assert device.num_worker_contexts == 6
       assert device.bytes_per_tile == 638976
       assert device.tile_clock_frequency == 1850000000
-      
-  tests.append(IpuBackendClientTest)
 
+  tests.append(IpuBackendClientTest)
 
   class ComputationPrinting(absltest.TestCase):
 
@@ -156,7 +155,8 @@ def TestFactory(xla_backend):
       builder = xla_client.XlaBuilder("acomputation")
       p0 = ops.Parameter(builder, 0, xla_client.shape_from_pyval(np.float32(0)))
       p1 = ops.Parameter(
-          builder, 1, xla_client.shape_from_pyval(np.zeros((4,), np.float32)))
+          builder, 1, xla_client.shape_from_pyval(np.zeros((4,), np.float32))
+      )
       x = ops.Mul(p0, p1)
       ops.Add(x, x)
       return builder.build()
@@ -198,7 +198,8 @@ def TestFactory(xla_backend):
     def testFlopEstimate(self):
       computation = self.ExampleComputation()
       properties = xla_client._xla.hlo_module_cost_analysis(
-          self.backend, computation.as_hlo_module())
+          self.backend, computation.as_hlo_module()
+      )
       self.assertEqual(properties["flops"], 8.0)
 
     def testFingerprint(self):
@@ -213,12 +214,10 @@ def TestFactory(xla_backend):
 
   tests.append(ComputationPrinting)
 
-
   class ComputationsWithConstantsTest(ComputationTest):
     """IPU backend skipping constant ops."""
 
   tests.append(ComputationsWithConstantsTest)
-
 
   class PythonCallbackTest(ComputationTest):
 
@@ -236,10 +235,10 @@ def TestFactory(xla_backend):
       shape = shape.with_major_to_minor_layout_if_absent()
       p0 = ops.Parameter(c, 0, shape)
       p1 = ops.Parameter(c, 1, shape)
-      out, keepalive = self.backend.emit_python_callback(
-          f, c, [p0, p1], [shape, shape])
+      out, keepalive = self.backend.emit_python_callback(f, c, [p0, p1], [shape, shape])
       self._ExecuteAndCompareExact(
-          c, arguments=[arg0, arg1], expected=[arg0 + arg1, arg0 - arg1])
+          c, arguments=[arg0, arg1], expected=[arg0 + arg1, arg0 - arg1]
+      )
       del out, keepalive
 
     @unittest.skipIf(ipu_backend, "Not implemented on IPU backend.")
@@ -256,9 +255,9 @@ def TestFactory(xla_backend):
       shape = shape.with_major_to_minor_layout_if_absent()
       p0 = ops.Parameter(c, 0, shape)
       out, keepalive = self.backend.emit_python_callback(
-          _Callback, c, [p0], [shape], has_side_effects=True)
-      with self.assertRaisesRegex(xla_client.XlaRuntimeError,
-                                  "Value error raised!"):
+          _Callback, c, [p0], [shape], has_side_effects=True
+      )
+      with self.assertRaisesRegex(xla_client.XlaRuntimeError, "Value error raised!"):
         self._Execute(c, [arg0])
       del out, keepalive
 
@@ -278,7 +277,8 @@ def TestFactory(xla_backend):
       p0 = ops.Parameter(c, 0, shape)
       token = ops.CreateToken(c)
       out, keepalive = self.backend.emit_python_callback(
-          _Callback, c, [p0, token], [token_shape, shape])
+          _Callback, c, [p0, token], [token_shape, shape]
+      )
       out = ops.GetTupleElement(out, 1)
       self._ExecuteAndCompareExact(c, arguments=[arg0], expected=[arg0 + 1])
       del out, keepalive
@@ -297,15 +297,16 @@ def TestFactory(xla_backend):
 
       arg0 = np.arange(12, dtype=np.int16).reshape(3, 4)
       shape_f_layout = xla_client.Shape.array_shape(
-          arg0.dtype, arg0.shape, layout=(0, 1))
+          arg0.dtype, arg0.shape, layout=(0, 1)
+      )
       p0 = ops.Parameter(c, 0, xla_client.shape_from_pyval(arg0))
       out, keepalive = self.backend.emit_python_callback(
-          _Callback, c, [p0], [shape_f_layout], [shape_f_layout])
+          _Callback, c, [p0], [shape_f_layout], [shape_f_layout]
+      )
       self._ExecuteAndCompareExact(c, arguments=[arg0], expected=[arg0 * 2])
       del out, keepalive
 
   tests.append(PythonCallbackTest)
-
 
   class ParametersTest(ComputationTest):
     """Tests focusing on Parameter ops and argument-passing."""
@@ -321,8 +322,7 @@ def TestFactory(xla_backend):
       p0 = ops.Parameter(c, 0, xla_client.shape_from_pyval(arg0))
       p1 = ops.Parameter(c, 1, xla_client.shape_from_pyval(arg1))
       ops.Mul(p0, p1)
-      self._ExecuteAndCompareExact(
-          c, arguments=[arg0, arg1], expected=[arg0 * arg1])
+      self._ExecuteAndCompareExact(c, arguments=[arg0, arg1], expected=[arg0 * arg1])
 
     # TODO(phawkins): test comparison harness doesn't support bfloat16
     @parameterized.named_parameters({
@@ -339,46 +339,43 @@ def TestFactory(xla_backend):
       p1 = ops.Parameter(c, 1, xla_client.shape_from_pyval(arg1))
       p0 = ops.Parameter(c, 0, xla_client.shape_from_pyval(arg0))
       ops.Sub(p1, p0)
-      self._ExecuteAndCompareClose(
-          c, arguments=[arg0, arg1], expected=[arg1 - arg0])
+      self._ExecuteAndCompareClose(c, arguments=[arg0, arg1], expected=[arg1 - arg0])
 
   tests.append(ParametersTest)
-
 
   class BufferTest(ComputationTest):
     """Tests focusing on execution with Buffers."""
 
     def testConstantSum(self):
       c = self._NewComputation()
-      ops.Add(
-          ops.Constant(c, np.float32(1.11)), ops.Constant(c, np.float32(3.14)))
+      ops.Add(ops.Constant(c, np.float32(1.11)), ops.Constant(c, np.float32(3.14)))
       self._ExecuteAndCompareClose(c, expected=[4.25])
 
     def testOneParameterSum(self):
       c = self._NewComputation()
       ops.Add(
           ops.Parameter(c, 0, xla_client.shape_from_pyval(NumpyArrayF32(0.))),
-          ops.Constant(c, np.float32(3.14)))
-      self._ExecuteAndCompareClose(
-          c, arguments=[NumpyArrayF32(1.11)], expected=[4.25])
+          ops.Constant(c, np.float32(3.14))
+      )
+      self._ExecuteAndCompareClose(c, arguments=[NumpyArrayF32(1.11)], expected=[4.25])
 
     def testTwoParameterSum(self):
       c = self._NewComputation()
       ops.Add(
           ops.Parameter(c, 0, xla_client.shape_from_pyval(NumpyArrayF32(0.))),
-          ops.Parameter(c, 1, xla_client.shape_from_pyval(NumpyArrayF32(0.))))
+          ops.Parameter(c, 1, xla_client.shape_from_pyval(NumpyArrayF32(0.)))
+      )
       self._ExecuteAndCompareClose(
-          c,
-          arguments=[NumpyArrayF32(1.11),
-                     NumpyArrayF32(3.14)],
-          expected=[4.25])
+          c, arguments=[NumpyArrayF32(1.11), NumpyArrayF32(3.14)], expected=[4.25]
+      )
 
     @unittest.skipIf(cloud_tpu, "not implemented")
     def testCannotCallWithDeletedBuffers(self):
       c = self._NewComputation()
       ops.Add(
           ops.Parameter(c, 0, xla_client.shape_from_pyval(NumpyArrayF32(0.))),
-          ops.Constant(c, np.float32(3.14)))
+          ops.Constant(c, np.float32(3.14))
+      )
       arg = NumpyArrayF32(1.11)
       compiled_c = self.backend.compile(c.build())
       arg_buffer = self.backend.buffer_from_pyval(arg)
@@ -428,8 +425,8 @@ def TestFactory(xla_backend):
       buffer.delete()
       with self.assertRaisesRegex(
           RuntimeError,
-          re.escape(
-              "BlockHostUntilReady() called on deleted or donated buffer")):
+          re.escape("BlockHostUntilReady() called on deleted or donated buffer")
+      ):
         buffer.block_until_ready()
 
     def testDeviceArrayBaseSignatures(self):
@@ -439,8 +436,8 @@ def TestFactory(xla_backend):
       buffer = self.backend.buffer_from_pyval(arg)
       if not isinstance(buffer, xla_client.DeviceArrayBase):
         raise unittest.SkipTest(
-            "The objectof type {} do not extend DeviceArrayBase".format(
-                type(buffer)))
+            "The objectof type {} do not extend DeviceArrayBase".format(type(buffer))
+        )
 
       self.assertEqual(buffer.__array_priority__, 100)
       self.assertEqual(buffer.shape, (1, 3))
@@ -485,8 +482,9 @@ def TestFactory(xla_backend):
       self.assertIs(self.backend.live_buffers()[0], arg2_buffer)
       self.assertIs(self.backend.live_buffers()[1], arg1_buffer)
       self.assertIs(self.backend.live_buffers()[2], arg0_buffer)
-      self.assertEqual(self.backend.devices()[0].live_buffers(),
-                       self.backend.live_buffers())
+      self.assertEqual(
+          self.backend.devices()[0].live_buffers(), self.backend.live_buffers()
+      )
 
       arg1_buffer.delete()
       self.assertLen(self.backend.live_buffers(), 2)
@@ -571,42 +569,45 @@ def TestFactory(xla_backend):
     single XLA ops. As minimal as possible number of additional ops are added
     around the op being tested.
     """
+
     @parameterized.named_parameters({
         "testcase_name": "_{}".format(dtype.__name__),
         "dtype": dtype,
     } for dtype in float_dtypes)
     def testConcatenate(self, dtype):
-      c = self._NewComputation()      
+      c = self._NewComputation()
       args = (
           np.array([1.0, 2.0, 3.0], dtype=dtype),
           np.array([4.0, 5.0, 6.0], dtype=dtype),
       )
       ops.ConcatInDim(c, make_parameters(c, args), dimension=0)
       self._ExecuteAndCompareExact(
-          c, arguments=args, 
-          expected=[np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=dtype)])
+          c,
+          arguments=args,
+          expected=[np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=dtype)]
+      )
 
     # pyformat: disable
-    @parameterized.named_parameters({
-        "testcase_name": "_{}_{}".format(src_dtype.__name__,
-                                         dst_dtype.__name__),
-        "src_dtype": src_dtype,
-        "dst_dtype": dst_dtype,
-    } for src_dtype, dst_dtype in itertools.permutations(
-        [np.bool_, np.int32, np.float32], 2))
+    @parameterized.named_parameters(
+        {
+            "testcase_name": "_{}_{}".format(src_dtype.__name__, dst_dtype.__name__),
+            "src_dtype": src_dtype,
+            "dst_dtype": dst_dtype,
+        } for src_dtype, dst_dtype in
+        itertools.permutations([np.bool_, np.int32, np.float32], 2)
+    )
     # pyformat: enable
     def testConvertElementType(self, src_dtype, dst_dtype):
-      if ((src_dtype in [np.int64, np.float64] or
-           dst_dtype in [np.int64, np.float64]) and
-          self.backend.platform == "tpu"):
+      if ((src_dtype in [np.int64, np.float64] or dst_dtype in [np.int64, np.float64])
+          and self.backend.platform == "tpu"):
         self.skipTest("TPU doesn't support float64")
       c = self._NewComputation()
       x = np.array([0, 1, 0, 0, 1], dtype=src_dtype)
-      ops.ConvertElementType(
-          make_parameter(c, x), xla_client.dtype_to_etype(dst_dtype))
-      
+      ops.ConvertElementType(make_parameter(c, x), xla_client.dtype_to_etype(dst_dtype))
+
       result = xla_client.execute_with_python_values(
-          self.backend.compile(c.build()), (x,), backend=self.backend)
+          self.backend.compile(c.build()), (x,), backend=self.backend
+      )
       self.assertLen(result, 1)
       expected = np.array(x, dtype=dst_dtype)
 
@@ -628,18 +629,19 @@ def TestFactory(xla_backend):
 
   tests.append(SingleOpTest)
 
-
   class EmbeddedComputationsTest(ComputationTest):
     """Tests for XLA graphs with embedded computations (such as maps)."""
 
     def _CreateConstantComputation(self, in_dtype, out_dtype):
       """Computation (A) -> B that returns a constant 1 for any input."""
-      c = self._NewComputation("constant_{}_{}_one".format(
-          in_dtype.__name__, out_dtype.__name__))
+      c = self._NewComputation(
+          "constant_{}_{}_one".format(in_dtype.__name__, out_dtype.__name__)
+      )
       ops.Parameter(
           c, 0,
-          xla_client.shape_from_pyval(np.array(
-              0, dtype=in_dtype)).with_major_to_minor_layout_if_absent())
+          xla_client.shape_from_pyval(np.array(0, dtype=in_dtype)
+                                     ).with_major_to_minor_layout_if_absent()
+      )
       ops.Constant(c, out_dtype(1))
       return c.build()
 
@@ -649,9 +651,10 @@ def TestFactory(xla_backend):
       ops.Mul(
           ops.Parameter(
               c, 0,
-              xla_client.shape_from_pyval(np.array(
-                  0, dtype=dtype)).with_major_to_minor_layout_if_absent()),
-          ops.Constant(c, dtype(2.0)))
+              xla_client.shape_from_pyval(np.array(0, dtype=dtype)
+                                         ).with_major_to_minor_layout_if_absent()
+          ), ops.Constant(c, dtype(2.0))
+      )
       return c.build()
 
     def _CreateMulF32ByParamComputation(self):
@@ -659,7 +662,8 @@ def TestFactory(xla_backend):
       c = self._NewComputation("mul_f32_by_param")
       ops.Mul(
           ops.Parameter(c, 0, xla_client.shape_from_pyval(NumpyArrayF32(0))),
-          ops.Parameter(c, 1, xla_client.shape_from_pyval(NumpyArrayF32(0))))
+          ops.Parameter(c, 1, xla_client.shape_from_pyval(NumpyArrayF32(0)))
+      )
       return c.build()
 
     def _CreateBinaryAddComputation(self, dtype):
@@ -691,9 +695,8 @@ def TestFactory(xla_backend):
       c = self._NewComputation()
       data = dtype(5.0)
       ops.Call(
-          c,
-          self._CreateMulBy2Computation(dtype),
-          operands=(make_parameter(c, data),))
+          c, self._CreateMulBy2Computation(dtype), operands=(make_parameter(c, data),)
+      )
       self._ExecuteAndCompareClose(c, arguments=(data,), expected=[10.0])
 
     @parameterized.named_parameters({
@@ -704,9 +707,10 @@ def TestFactory(xla_backend):
     def testMapEachElementToConstant(self, in_dtype, out_dtype):
       c = self._NewComputation()
       data = np.array([1.0, 2.0, 3.0, 4.0], dtype=in_dtype)
-      ops.Map(c,
-              [make_parameter(c, data)],
-              self._CreateConstantComputation(in_dtype, out_dtype), [0])
+      ops.Map(
+          c, [make_parameter(c, data)],
+          self._CreateConstantComputation(in_dtype, out_dtype), [0]
+      )
       self._ExecuteAndCompareExact(c, arguments=(data,), expected=[[1, 1, 1, 1]])
 
     @parameterized.named_parameters({
@@ -718,9 +722,10 @@ def TestFactory(xla_backend):
         self.skipTest("TPU doesn't support float64")
       c = self._NewComputation()
       data = np.array([1.0, 2.0, 3.0, 4.0], dtype=dtype)
-      ops.Map(c, [make_parameter(c, data)],
-              self._CreateMulBy2Computation(dtype), [0])
-      self._ExecuteAndCompareClose(c, arguments=(data,), expected=[[2.0, 4.0, 6.0, 8.0]])
+      ops.Map(c, [make_parameter(c, data)], self._CreateMulBy2Computation(dtype), [0])
+      self._ExecuteAndCompareClose(
+          c, arguments=(data,), expected=[[2.0, 4.0, 6.0, 8.0]]
+      )
 
     @parameterized.named_parameters({
         "testcase_name": "_{}".format(dtype.__name__),
@@ -733,10 +738,13 @@ def TestFactory(xla_backend):
       c = self._NewComputation()
       data = np.array([1.0, 2.0, 3.0, 4.0], dtype=dtype)
       const = ops.Map(
-          c, [make_parameter(c, data)],
-          self._CreateConstantComputation(dtype, dtype), [0])
+          c, [make_parameter(c, data)], self._CreateConstantComputation(dtype, dtype),
+          [0]
+      )
       ops.Map(c, [const], self._CreateMulBy2Computation(dtype), [0])
-      self._ExecuteAndCompareClose(c, arguments=(data,), expected=[[2.0, 2.0, 2.0, 2.0]])
+      self._ExecuteAndCompareClose(
+          c, arguments=(data,), expected=[[2.0, 2.0, 2.0, 2.0]]
+      )
 
     # TODO(b/154752816): bfloat16 crashes in evaluator.
     @parameterized.named_parameters({
@@ -754,10 +762,10 @@ def TestFactory(xla_backend):
       c = self._NewComputation()
       data1 = np.array([1.0, 2.0, 3.0, 4.0], dtype=dtype)
       data2 = np.array([5.0, 5.0, 4.0, 4.0], dtype=dtype)
-      ops.Map(c, make_parameters(c, [data1, data2]),
-              DivComputation(), [0])
+      ops.Map(c, make_parameters(c, [data1, data2]), DivComputation(), [0])
       self._ExecuteAndCompareClose(
-          c, arguments=(data1, data2), expected=[[0.2, 0.4, 0.75, 1.0]], rtol=1e-3)
+          c, arguments=(data1, data2), expected=[[0.2, 0.4, 0.75, 1.0]], rtol=1e-3
+      )
 
     @parameterized.named_parameters({
         "testcase_name": "_{}".format(dtype.__name__),
@@ -773,7 +781,8 @@ def TestFactory(xla_backend):
       window_strides = (1, 2)
       padding = xla_client.window_padding_type_to_pad_values(
           xla_client.PaddingType.VALID,
-          c.get_shape(p).dimensions(), window_dimensions, window_strides)
+          c.get_shape(p).dimensions(), window_dimensions, window_strides
+      )
       ops.SelectAndScatterWithGeneralPadding(
           p,
           select=self._CreateBinaryGeComputation(dtype),
@@ -782,9 +791,11 @@ def TestFactory(xla_backend):
           padding=padding,
           source=ops.Constant(c, np.array([[0.1, 0.2]], dtype=dtype)),
           init_value=ops.Constant(c, np.array(1, dtype=dtype)),
-          scatter=self._CreateBinaryAddComputation(dtype))
+          scatter=self._CreateBinaryAddComputation(dtype)
+      )
       self._ExecuteAndCompareClose(
-          c, arguments=(data,), expected=[[[1., 1., 1.2], [1.1, 1., 1.]]], rtol=5e-3)
+          c, arguments=(data,), expected=[[[1., 1., 1.2], [1.1, 1., 1.]]], rtol=5e-3
+      )
 
     @parameterized.named_parameters({
         "testcase_name": "_{}".format(dtype.__name__),
@@ -798,7 +809,8 @@ def TestFactory(xla_backend):
           operands=[make_parameter(c, data)],
           init_values=[ops.Constant(c, dtype(0))],
           computation=self._CreateBinaryAddComputation(dtype),
-          dimensions_to_reduce=[0])
+          dimensions_to_reduce=[0]
+      )
       self._ExecuteAndCompareClose(c, arguments=(data,), expected=[10])
 
     # TODO(phawkins): test comparison harness doesn't support bfloat16
@@ -815,8 +827,11 @@ def TestFactory(xla_backend):
           operands=[make_parameter(c, input_array)],
           init_values=[ops.Constant(c, dtype(0))],
           computation=self._CreateBinaryAddComputation(dtype),
-          dimensions_to_reduce=[dim])
-      self._ExecuteAndCompareClose(c, arguments=(input_array,), expected=[np.sum(input_array, axis=dim)])
+          dimensions_to_reduce=[dim]
+      )
+      self._ExecuteAndCompareClose(
+          c, arguments=(input_array,), expected=[np.sum(input_array, axis=dim)]
+      )
 
     @parameterized.named_parameters({
         "testcase_name": "_{}_dims[{}]".format(dtype.__name__, dims),
@@ -831,8 +846,11 @@ def TestFactory(xla_backend):
           operands=[make_parameter(c, input_array)],
           init_values=[ops.Constant(c, dtype(0))],
           computation=self._CreateBinaryAddComputation(dtype),
-          dimensions_to_reduce=dims)
-      self._ExecuteAndCompareClose(c, arguments=(input_array,), expected=[np.sum(input_array, axis=dims)])
+          dimensions_to_reduce=dims
+      )
+      self._ExecuteAndCompareClose(
+          c, arguments=(input_array,), expected=[np.sum(input_array, axis=dims)]
+      )
 
     @parameterized.named_parameters({
         "testcase_name": "_{}".format(dtype.__name__),
@@ -847,7 +865,8 @@ def TestFactory(xla_backend):
       window_strides = (1, 1)
       padding = xla_client.window_padding_type_to_pad_values(
           xla_client.PaddingType.VALID, input_array.shape, window_dimensions,
-          window_strides)
+          window_strides
+      )
       ops.ReduceWindowWithGeneralPadding(
           operand=make_parameter(c, input_array),
           init_value=ops.Constant(c, dtype(0)),
@@ -856,8 +875,11 @@ def TestFactory(xla_backend):
           window_strides=window_strides,
           base_dilations=[],
           window_dilations=[],
-          padding=padding)
-      self._ExecuteAndCompareClose(c, arguments=(input_array,), expected=[[[5., 7., 9.]]])
+          padding=padding
+      )
+      self._ExecuteAndCompareClose(
+          c, arguments=(input_array,), expected=[[[5., 7., 9.]]]
+      )
 
     @parameterized.named_parameters({
         "testcase_name": "_{}".format(dtype.__name__),
@@ -872,7 +894,8 @@ def TestFactory(xla_backend):
       window_strides = (1, 1)
       padding = xla_client.window_padding_type_to_pad_values(
           xla_client.PaddingType.SAME, input_array.shape, window_dimensions,
-          window_strides)
+          window_strides
+      )
       ops.ReduceWindowWithGeneralPadding(
           operand=make_parameter(c, input_array),
           init_value=ops.Constant(c, dtype(0)),
@@ -881,8 +904,11 @@ def TestFactory(xla_backend):
           window_strides=window_strides,
           base_dilations=[],
           window_dilations=[],
-          padding=padding)
-      self._ExecuteAndCompareClose(c, arguments=(input_array,), expected=[[[5., 7., 9.], [4., 5., 6.]]])
+          padding=padding
+      )
+      self._ExecuteAndCompareClose(
+          c, arguments=(input_array,), expected=[[[5., 7., 9.], [4., 5., 6.]]]
+      )
 
     @parameterized.named_parameters({
         "testcase_name": "_{}".format(dtype.__name__),
@@ -897,7 +923,8 @@ def TestFactory(xla_backend):
       window_strides = (1, 2)
       padding = xla_client.window_padding_type_to_pad_values(
           xla_client.PaddingType.VALID, input_array.shape, window_dimensions,
-          window_strides)
+          window_strides
+      )
       ops.ReduceWindowWithGeneralPadding(
           operand=make_parameter(c, input_array),
           init_value=ops.Constant(c, dtype(0)),
@@ -906,7 +933,8 @@ def TestFactory(xla_backend):
           window_strides=window_strides,
           base_dilations=[],
           window_dilations=[],
-          padding=padding)
+          padding=padding
+      )
       self._ExecuteAndCompareClose(c, arguments=(input_array,), expected=[[[5., 9.]]])
 
     @unittest.skipIf(ipu_backend, "`reduce_window` not supported by IPU backend.")
@@ -916,9 +944,7 @@ def TestFactory(xla_backend):
       shape = shape.with_major_to_minor_layout_if_absent()
       ps = [ops.Parameter(c, i, shape) for i in range(4)]
       which = ops.Ge(ps[0], ps[2])
-      ops.Tuple(
-          c, [ops.Select(which, ps[0], ps[2]),
-              ops.Select(which, ps[1], ps[3])])
+      ops.Tuple(c, [ops.Select(which, ps[0], ps[2]), ops.Select(which, ps[1], ps[3])])
       reducer = c.build()
 
       key_array = np.array([[1, 5, 6], [4, 2, 3]], dtype=np.int32)
@@ -928,20 +954,22 @@ def TestFactory(xla_backend):
       window_strides = (1, 1)
       padding = xla_client.window_padding_type_to_pad_values(
           xla_client.PaddingType.VALID, key_array.shape, window_dimensions,
-          window_strides)
+          window_strides
+      )
       ops.ReduceWindowWithGeneralPadding(
           operands=make_parameters(c, [key_array, val_array]),
-          init_values=[
-              ops.Constant(c, np.int32(0)),
-              ops.Constant(c, np.int32(0))
-          ],
+          init_values=[ops.Constant(c, np.int32(0)),
+                       ops.Constant(c, np.int32(0))],
           computation=reducer,
           window_dimensions=window_dimensions,
           window_strides=window_strides,
           base_dilations=[],
           window_dilations=[],
-          padding=padding)
-      self._ExecuteAndCompareClose(c, arguments=(key_array, val_array), expected=[[[4, 5, 6]], [[10, 8, 9]]])
+          padding=padding
+      )
+      self._ExecuteAndCompareClose(
+          c, arguments=(key_array, val_array), expected=[[[4, 5, 6]], [[10, 8, 9]]]
+      )
 
     @parameterized.named_parameters({
         "testcase_name": "_{}".format(dtype.__name__),
@@ -968,10 +996,11 @@ def TestFactory(xla_backend):
       true_operand = ops.Constant(c, np.float32(3.))
       true_computation = self._CreateMulBy2Computation(np.float32)
       false_operand = ops.Constant(c, np.float32(2.))
-      false_computation = self._CreateConstantComputation(
-          np.float32, np.float32)
-      ops.Conditional(make_parameter(c, pred_data), true_operand, true_computation, false_operand,
-                      false_computation)
+      false_computation = self._CreateConstantComputation(np.float32, np.float32)
+      ops.Conditional(
+          make_parameter(c, pred_data), true_operand, true_computation, false_operand,
+          false_computation
+      )
       self._ExecuteAndCompareClose(c, arguments=(pred_data,), expected=[6.])
 
     def testConditionalFalse(self):
@@ -980,10 +1009,11 @@ def TestFactory(xla_backend):
       true_operand = ops.Constant(c, np.float32(3.))
       true_computation = self._CreateMulBy2Computation(np.float32)
       false_operand = ops.Constant(c, np.float32(2.))
-      false_computation = self._CreateConstantComputation(
-          np.float32, np.float32)
-      ops.Conditional(make_parameter(c, pred_data), true_operand, true_computation, false_operand,
-                      false_computation)
+      false_computation = self._CreateConstantComputation(np.float32, np.float32)
+      ops.Conditional(
+          make_parameter(c, pred_data), true_operand, true_computation, false_operand,
+          false_computation
+      )
       self._ExecuteAndCompareClose(c, arguments=(pred_data,), expected=[1.])
 
     @unittest.skipIf(ipu_backend, "Failing on IPU backend.")
@@ -994,8 +1024,10 @@ def TestFactory(xla_backend):
       ops.GetTupleElement(
           ops.InfeedWithToken(
               ops.CreateToken(c),
-              xla_client.shape_from_pyval(
-                  to_infeed[0]).with_major_to_minor_layout_if_absent()), 0)
+              xla_client.shape_from_pyval(to_infeed[0]
+                                         ).with_major_to_minor_layout_if_absent()
+          ), 0
+      )
       compiled_c = self.backend.compile(c.build())
       device = self.backend.local_devices()[0]
       for item in to_infeed:
@@ -1003,7 +1035,8 @@ def TestFactory(xla_backend):
 
       for item in to_infeed:
         result, = xla_client.execute_with_python_values(
-            compiled_c, (), backend=self.backend)
+            compiled_c, (), backend=self.backend
+        )
         self.assertEqual(result, item)
 
     @unittest.skipIf(cloud_tpu, "not implemented")
@@ -1013,14 +1046,17 @@ def TestFactory(xla_backend):
       ops.GetTupleElement(
           ops.InfeedWithToken(
               ops.CreateToken(c),
-              xla_client.shape_from_pyval(
-                  to_infeed).with_major_to_minor_layout_if_absent()), 0)
+              xla_client.shape_from_pyval(to_infeed
+                                         ).with_major_to_minor_layout_if_absent()
+          ), 0
+      )
       compiled_c = self.backend.compile(c.build())
       device = self.backend.local_devices()[0]
       device.transfer_to_infeed(to_infeed)
 
       result = xla_client.execute_with_python_values(
-          compiled_c, (), backend=self.backend)
+          compiled_c, (), backend=self.backend
+      )
       self.assertLen(result, 2)
       np.testing.assert_equal(result[0], to_infeed[0])
       np.testing.assert_equal(result[1], to_infeed[1])
@@ -1032,12 +1068,14 @@ def TestFactory(xla_backend):
       c = self._NewComputation()
       x_and_token = ops.InfeedWithToken(
           ops.CreateToken(c),
-          xla_client.shape_from_pyval(
-              to_round_trip[0]).with_major_to_minor_layout_if_absent())
+          xla_client.shape_from_pyval(to_round_trip[0]
+                                     ).with_major_to_minor_layout_if_absent()
+      )
       x = ops.GetTupleElement(x_and_token, 0)
       token = ops.GetTupleElement(x_and_token, 1)
       outfeed_shape = xla_client.shape_from_pyval(
-          to_round_trip[0]).with_major_to_minor_layout_if_absent()
+          to_round_trip[0]
+      ).with_major_to_minor_layout_if_absent()
       ops.OutfeedWithToken(x, token, outfeed_shape)
 
       compiled_c = self.backend.compile(c.build())
@@ -1063,15 +1101,16 @@ def TestFactory(xla_backend):
       dnums.index_vector_dim = 1
 
       c = self._NewComputation()
-      ops.Scatter(*make_parameters(c, [a, scatter_indices, updates]),
-          self._CreateBinaryAddComputation(np.int32),
-          dnums)
-      expected = np.array([[10, 21, 32], [3, 4, 5], [76, 87, 98]],
-                          dtype=np.int32)
-      self._ExecuteAndCompareClose(c, arguments=[a, scatter_indices, updates], expected=[expected])
+      ops.Scatter(
+          *make_parameters(c, [a, scatter_indices, updates]),
+          self._CreateBinaryAddComputation(np.int32), dnums
+      )
+      expected = np.array([[10, 21, 32], [3, 4, 5], [76, 87, 98]], dtype=np.int32)
+      self._ExecuteAndCompareClose(
+          c, arguments=[a, scatter_indices, updates], expected=[expected]
+      )
 
   tests.append(EmbeddedComputationsTest)
-
 
   class DeviceTest(ComputationTest):
 
@@ -1104,7 +1143,8 @@ def TestFactory(xla_backend):
 
       self.assertRaisesRegex(
           RuntimeError, r".*Invalid argument shape.*"
-          r"expected s32\[\], got f32\[\].*", TestFun)
+          r"expected s32\[\], got f32\[\].*", TestFun
+      )
 
     def testInvokeWithWrongElementType(self):
       c = self._NewComputation()
@@ -1114,7 +1154,8 @@ def TestFactory(xla_backend):
 
       def TestFun():
         return xla_client.execute_with_python_values(
-            self.backend.compile(c.build()), [self.f32_scalar_2], self.backend)
+            self.backend.compile(c.build()), [self.f32_scalar_2], self.backend
+        )
 
       # self.assertRaisesRegex(
       #     RuntimeError, r"Invalid argument: Argument does not match.*"
@@ -1122,7 +1163,6 @@ def TestFactory(xla_backend):
       self.assertRaises(RuntimeError, TestFun)
 
   tests.append(ErrorTest)
-
 
   class ComputationRootTest(ComputationTest):
     """Tests related to setting the root of the computation."""
@@ -1136,11 +1176,11 @@ def TestFactory(xla_backend):
       arg = NumpyArrayF32(1.0)
       compiled_c = self.backend.compile(c.build(result))
       ans, = xla_client.execute_with_python_values(
-          compiled_c, [arg], backend=self.backend)
+          compiled_c, [arg], backend=self.backend
+      )
       np.testing.assert_allclose(ans, 4.14)
 
   tests.append(ComputationRootTest)
-
 
   class SetShardingTest(ComputationTest):
     """Tests related to set OpSharding."""
@@ -1160,18 +1200,19 @@ def TestFactory(xla_backend):
       arg = NumpyArrayF32(1.0)
       compiled_c = self.backend.compile(c.build(result))
       ans, = xla_client.execute_with_python_values(
-          compiled_c, [arg], backend=self.backend)
+          compiled_c, [arg], backend=self.backend
+      )
       np.testing.assert_allclose(ans, 4.14)
 
   tests.append(SetShardingTest)
-
 
   class DeviceAssignmentTest(ComputationTest):
 
     def testSerialize(self):
       shape = (3, 4)
       device_assignment = xla_client.DeviceAssignment.create(
-          np.arange(np.prod(shape)).reshape(*shape))
+          np.arange(np.prod(shape)).reshape(*shape)
+      )
       self.assertEqual(device_assignment.replica_count(), shape[0])
       self.assertEqual(device_assignment.computation_count(), shape[1])
       serialized = device_assignment.serialize()
@@ -1179,7 +1220,6 @@ def TestFactory(xla_backend):
       self.assertNotEmpty(serialized)
 
   tests.append(DeviceAssignmentTest)
-
 
   class HostCallbackTest(ComputationTest):
     """Tests related to HostCallback."""
@@ -1199,22 +1239,26 @@ def TestFactory(xla_backend):
 
       send_channel_handle = self.backend.create_channel_handle()
       send_channel_handle.type = (
-          xla_client._xla.ChannelHandle_ChannelType.DEVICE_TO_HOST)
+          xla_client._xla.ChannelHandle_ChannelType.DEVICE_TO_HOST
+      )
       send_channel_handle.handle = 1
       ops.SendToHost(
           ops.Constant(c, np.float32(1.25)),
           token,
           shape_with_layout=xla_client.Shape.scalar_shape(np.dtype(np.float32)),
-          handle=send_channel_handle)
+          handle=send_channel_handle
+      )
 
       recv_channel_handle = self.backend.create_channel_handle()
       recv_channel_handle.type = (
-          xla_client._xla.ChannelHandle_ChannelType.HOST_TO_DEVICE)
+          xla_client._xla.ChannelHandle_ChannelType.HOST_TO_DEVICE
+      )
       recv_channel_handle.handle = 2
       data = ops.RecvFromHost(
           token,
           shape=xla_client.Shape.scalar_shape(np.dtype(np.float32)),
-          handle=recv_channel_handle)
+          handle=recv_channel_handle
+      )
       ops.GetTupleElement(data, 0)
 
       def Identity(x):
@@ -1225,10 +1269,10 @@ def TestFactory(xla_backend):
           operand_shapes=[xla_client.Shape.scalar_shape(np.dtype(np.float32))],
           result_shapes=[xla_client.Shape.scalar_shape(np.dtype(np.float32))],
           send_channel_ids=[1],
-          recv_channel_ids=[2])
+          recv_channel_ids=[2]
+      )
 
-      compiled_c = self.backend.compile(
-          c.build(), host_callbacks=[host_callback])
+      compiled_c = self.backend.compile(c.build(), host_callbacks=[host_callback])
       c.clear_frontend_attributes()
 
       results = compiled_c.execute([])
@@ -1237,7 +1281,6 @@ def TestFactory(xla_backend):
       np.testing.assert_equal(results[0].to_py(), np.float32(1.25))
 
   tests.append(HostCallbackTest)
-
 
   class HostCallbackMultiReplicaTest(ComputationTest):
     """Tests related to HostCallback for multi-replica execution."""
@@ -1257,22 +1300,26 @@ def TestFactory(xla_backend):
 
       send_channel_handle = self.backend.create_channel_handle()
       send_channel_handle.type = (
-          xla_client._xla.ChannelHandle_ChannelType.DEVICE_TO_HOST)
+          xla_client._xla.ChannelHandle_ChannelType.DEVICE_TO_HOST
+      )
       send_channel_handle.handle = 1
       ops.SendToHost(
           ops.ReplicaId(c),
           token,
           shape_with_layout=xla_client.Shape.scalar_shape(np.dtype(np.uint32)),
-          handle=send_channel_handle)
+          handle=send_channel_handle
+      )
 
       recv_channel_handle = self.backend.create_channel_handle()
       recv_channel_handle.type = (
-          xla_client._xla.ChannelHandle_ChannelType.HOST_TO_DEVICE)
+          xla_client._xla.ChannelHandle_ChannelType.HOST_TO_DEVICE
+      )
       recv_channel_handle.handle = 2
       data = ops.RecvFromHost(
           token,
           shape=xla_client.Shape.scalar_shape(np.dtype(np.uint32)),
-          handle=recv_channel_handle)
+          handle=recv_channel_handle
+      )
       ops.GetTupleElement(data, 0)
 
       def Identity(x):
@@ -1283,13 +1330,15 @@ def TestFactory(xla_backend):
           operand_shapes=[xla_client.Shape.scalar_shape(np.dtype(np.uint32))],
           result_shapes=[xla_client.Shape.scalar_shape(np.dtype(np.uint32))],
           send_channel_ids=[1],
-          recv_channel_ids=[2])
+          recv_channel_ids=[2]
+      )
 
       num_replicas = 2
       options = xla_client.CompileOptions()
       options.num_replicas = num_replicas
       compiled_c = self.backend.compile(
-          c.build(), compile_options=options, host_callbacks=[host_callback])
+          c.build(), compile_options=options, host_callbacks=[host_callback]
+      )
       c.clear_frontend_attributes()
 
       results = compiled_c.execute_sharded_on_local_devices([])
@@ -1313,6 +1362,7 @@ def InstantiateTests(globals_dict, backend_fn, test_prefix="", **kw):
     # Clean up the qualified names of the tests to not include the test factory.
     test.__qualname__ = test.__name__
     globals_dict[test.__name__] = test
+
 
 backends = {
     "ipu": make_ipu_client,
