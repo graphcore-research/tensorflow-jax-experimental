@@ -29,3 +29,41 @@ jobs:
         with:
           python-version: 3.8
       - uses: pre-commit/action@v3.0.0
+
+  # XLA/PJRT IPU client unit tests
+  pjrt_ipu_client_unit_tests_ipu_model:
+    runs-on: [self-hosted, Linux, X64, 20.04, Ubuntu]
+    container: graphcore/pytorch:3.1.0-ubuntu-20.04
+    timeout-minutes: 120
+    steps:
+      - name: Cancel previous
+        uses: styfle/cancel-workflow-action@0.11.0
+        with:
+          access_token: ${{ github.token }}
+        if: ${{github.ref != 'refs/head/jaxlibv0.3.15/sdk-release-3.1-lean-jax'}}
+      - uses: actions/checkout@v3
+      - name: Install bazel
+        run: |
+          apt update
+          DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC apt-get -y install tzdata
+          apt install apt-transport-https curl gnupg -y
+          curl -fsSL https://bazel.build/bazel-release.pub.gpg | gpg --dearmor >bazel-archive-keyring.gpg
+          mv bazel-archive-keyring.gpg /usr/share/keyrings
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/bazel-archive-keyring.gpg] https://storage.googleapis.com/bazel-apt stable jdk1.8" | tee /etc/apt/sources.list.d/bazel.list
+          apt update
+          apt install -y openjdk-11-jdk-headless bazel=5.1.1
+      - name: Install Python dependencies
+        id: pip-cache
+        run: |
+          python3 -m pip install --upgrade pip wheel setuptools
+          python3 -m pip install numpy==1.22.4 scipy cython
+      # Compile IPU XLA client & tests
+      - name: Compile IPU XLA/PJRT client
+        run: |
+          lscpu
+          export TF_POPLAR_BASE=/opt/poplar/
+          bazel build --config=monolithic --output_filter=DONT_MATCH_ANYTHING //tensorflow/compiler/plugin/poplar/xla_client:ipu_xla_client
+          bazel build --config=monolithic //tensorflow/compiler/plugin/poplar/xla_client/tests:all_tests
+      - name: Tests IPU XLA/PJRT client
+        run: |
+          bazel test --config=monolithic --jobs=4 --verbose_failures --cache_test_results=no --test_timeout=240,360,900,3600 --test_size_filters=small,medium,large --flaky_test_attempts=1 --test_env='TF_POPLAR_FLAGS=--use_ipu_model --ipu_model_tiles=8 --max_compilation_threads=1 --max_infeed_threads=2' //tensorflow/compiler/plugin/poplar/xla_client/tests:all_tests
