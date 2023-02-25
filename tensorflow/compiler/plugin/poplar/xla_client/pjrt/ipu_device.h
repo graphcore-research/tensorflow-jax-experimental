@@ -81,8 +81,8 @@ struct IpuConfig {
   double io_tile_available_memory_proportion = 0.9;
 };
 
-StatusOr<std::unique_ptr<PjRtClient>> GetIpuClient(bool asynchronous,
-                                                   const IpuConfig& config);
+StatusOr<std::unique_ptr<PjRtClient>> GetLegacyIpuClient(
+    bool asynchronous, const IpuConfig& config);
 
 }  // namespace poplarplugin
 }  // namespace xla

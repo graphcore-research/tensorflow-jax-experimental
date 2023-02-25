@@ -145,8 +145,8 @@ const poplar::Target& IpuDevice::GetPoplarTarget() const {
   return poplar_executor->GetOrCreatePoplarTarget();
 }
 
-StatusOr<std::unique_ptr<PjRtClient>> GetIpuClient(bool asynchronous,
-                                                   const IpuConfig& config) {
+StatusOr<std::unique_ptr<PjRtClient>> GetLegacyIpuClient(
+    bool asynchronous, const IpuConfig& config) {
   IpuOptions options = ParseIpuConfig(config).ValueOrDie();
   TF_ASSIGN_OR_RETURN(LocalClient * xla_client, GetIpuXlaClient(options));
   TF_ASSIGN_OR_RETURN(

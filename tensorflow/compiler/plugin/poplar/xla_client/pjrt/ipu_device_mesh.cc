@@ -17,7 +17,6 @@ limitations under the License.
 
 #include <algorithm>
 #include <poplar/DeviceManager.hpp>
-#include <poplar/IPUModel.hpp>
 
 #include "absl/strings/str_format.h"
 #include "tensorflow/core/platform/default/logging.h"
@@ -26,10 +25,13 @@ namespace xla {
 namespace poplarplugin {
 using IdType = IpuDeviceMeshInfo::IdType;
 
-IpuDeviceMeshInfo::IpuDeviceMeshInfo(IdType id,
-                                     const std::vector<IdType>& ipu_ids,
-                                     const poplar::Target& target)
-    : m_id{id}, m_ipu_ids{ipu_ids}, m_target{target} {
+IpuDeviceMeshInfo::IpuDeviceMeshInfo(
+    IdType id, const std::vector<IdType>& ipu_ids, const poplar::Target& target,
+    const std::optional<poplar::IPUModel>& ipu_model_desc)
+    : m_id{id},
+      m_ipu_ids{ipu_ids},
+      m_target{target},
+      m_ipu_model_desc{ipu_model_desc} {
   // Single IPU case.
   if (m_ipu_ids.size() == 0) {
     m_ipu_ids.push_back(m_id);
@@ -44,9 +46,19 @@ IpuDeviceMeshInfo::IpuDeviceMeshInfo(IdType id,
   CHECK_EQ(m_ipu_ids.size(), m_target.getNumIPUs());
 }
 
-IpuDeviceMesh::IpuDeviceMesh(poplar::Device device,
-                             const std::vector<IdType>& child_ipu_ids)
-    : m_mesh_info{device.getId(), child_ipu_ids, device.getTarget()},
+std::string IpuDeviceMeshInfo::version() const {
+  // IPU model: target does not support version query.
+  if (m_target.getTargetType() == poplar::TargetType::IPU_MODEL) {
+    return m_ipu_model_desc->IPUVersion;
+  }
+  return m_target.getTargetArchString();
+}
+
+IpuDeviceMesh::IpuDeviceMesh(
+    poplar::Device device, const std::vector<IdType>& child_ipu_ids,
+    const std::optional<poplar::IPUModel>& ipu_model_desc)
+    : m_mesh_info{device.getId(), child_ipu_ids, device.getTarget(),
+                  ipu_model_desc},
       m_device{std::move(device)} {}
 
 IpuDeviceMeshManager::IpuDeviceMeshManager(std::vector<IpuDeviceMesh> meshes)
@@ -54,19 +66,22 @@ IpuDeviceMeshManager::IpuDeviceMeshManager(std::vector<IpuDeviceMesh> meshes)
 
 IpuDeviceMeshManager IpuDeviceMeshManager::createCpuManager() {
   // not yet supported.
+  throw std::runtime_error("IPU device mesh `CPU` devices not yet supported");
   return IpuDeviceMeshManager();
 }
 
-IpuDeviceMeshManager IpuDeviceMeshManager::createIpuModelManager() {
+IpuDeviceMeshManager IpuDeviceMeshManager::createIpuModelManager(
+    int num_tiles, const std::string& version) {
   // IPU model description to create.
-  poplar::IPUModel ipu_model_desc;
+  poplar::IPUModel ipu_model_desc(version.c_str());
+  ipu_model_desc.tilesPerIPU = num_tiles;
   // Only support single IPU for now. TODO: multi-ipus.
   std::vector<IpuDeviceMesh> meshes;
   meshes.push_back(
       IpuDeviceMesh(ipu_model_desc.createDevice(/*optionFlags=*/{},
                                                 /*accurateHalf=*/false,
                                                 /*deviceManagerId=*/0),
-                    {}));
+                    {}, ipu_model_desc));
   return IpuDeviceMeshManager(std::move(meshes));
 }
 

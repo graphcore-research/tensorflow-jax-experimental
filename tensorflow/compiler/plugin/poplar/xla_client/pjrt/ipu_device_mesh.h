@@ -17,6 +17,7 @@ limitations under the License.
 #define TENSORFLOW_COMPILER_PLUGIN_POPLAR_XLA_CLIENT_PJRT_IPU_DEVICE_MESH_H_
 
 #include <poplar/Device.hpp>
+#include <poplar/IPUModel.hpp>
 #include <poplar/Target.hpp>
 #include <vector>
 
@@ -35,8 +36,17 @@ class IpuDeviceMeshInfo {
  public:
   using IdType = unsigned;
 
-  IpuDeviceMeshInfo(IdType id, const std::vector<IdType>& ipu_ids,
-                    const poplar::Target& target);
+  /**
+   * @brief IPU device mesh constructor.
+   * @param id Id of the mesh.
+   * @param ipu_ids Ids of individual IPUs part of the mesh.
+   * @param target Poplar target.
+   * @param ipu_model_desc Optional IPU model description.
+   */
+  explicit IpuDeviceMeshInfo(
+      IdType id, const std::vector<IdType>& ipu_ids,
+      const poplar::Target& target,
+      const std::optional<poplar::IPUModel>& ipu_model_desc = std::nullopt);
 
   // Standard copy/move.
   IpuDeviceMeshInfo(const IpuDeviceMeshInfo&) = default;
@@ -53,8 +63,12 @@ class IpuDeviceMeshInfo {
 
   /** Size of the IPU mesh */
   size_t size() const noexcept { return m_ipu_ids.size(); }
+  /** IPU target type */
+  poplar::TargetType type() const noexcept { return m_target.getTargetType(); }
   /** Is an IPU mesh with single device. */
   bool single() const noexcept { return (m_ipu_ids.size() == 1); }
+  /** IPU hardware version. */
+  std::string version() const;
 
  private:
   /** Mesh unique id.  */
@@ -63,6 +77,8 @@ class IpuDeviceMeshInfo {
   std::vector<IdType> m_ipu_ids;
   /** Poplar target corresponding to the mesh */
   poplar::Target m_target;
+  /** IPU model description, when using an IPU model. */
+  std::optional<poplar::IPUModel> m_ipu_model_desc;
 };
 
 /**
@@ -72,8 +88,9 @@ class IpuDeviceMesh {
  public:
   using IdType = IpuDeviceMeshInfo::IdType;
   /** Build from Poplar device + child IPU ids. */
-  IpuDeviceMesh(poplar::Device device,
-                const std::vector<IdType>& child_ipu_ids);
+  explicit IpuDeviceMesh(
+      poplar::Device device, const std::vector<IdType>& child_ipu_ids,
+      const std::optional<poplar::IPUModel>& ipu_model_desc = std::nullopt);
 
   // Standard copy/move.
   IpuDeviceMesh(const IpuDeviceMesh&) = delete;
@@ -92,6 +109,16 @@ class IpuDeviceMesh {
   IdType id() const noexcept { return m_mesh_info.id(); }
   /** Size of the IPU mesh */
   size_t size() const noexcept { return m_mesh_info.size(); }
+  /** IPU target type */
+  poplar::TargetType type() const noexcept {
+    return m_mesh_info.target().getTargetType();
+  }
+  /** IPU hardware version. */
+  std::string version() const noexcept { return m_mesh_info.version(); }
+  /** Num tiles per IPU */
+  unsigned num_tiles_per_ipu() const noexcept {
+    return m_mesh_info.target().getTilesPerIPU();
+  }
 
  private:
   /** IPU mesh info. */
@@ -115,10 +142,18 @@ class IpuDeviceMeshManager {
   IpuDeviceMeshManager(IpuDeviceMeshManager&&) noexcept = default;
   IpuDeviceMeshManager& operator=(IpuDeviceMeshManager&&) noexcept = default;
 
-  /** IPU (local) hardware manager. */
+  /**
+   * @brief IPU (local) hardware manager.
+   */
   static IpuDeviceMeshManager createIpuManager();
-  /** IPU model (simulator) manager */
-  static IpuDeviceMeshManager createIpuModelManager();
+  /**
+   * @brief IPU model (simulator) manager
+   * @param num_tiles Number of tiles to use in the IPU model.
+   * @param version IPU hardware version ('ipu2' or 'ipu21').
+   */
+  static IpuDeviceMeshManager createIpuModelManager(
+      int num_tiles = 4, const std::string& version = "ipu2");
+
   /** CPU model manager. */
   static IpuDeviceMeshManager createCpuManager();
 

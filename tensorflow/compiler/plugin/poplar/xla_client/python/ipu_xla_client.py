@@ -19,8 +19,8 @@ from tensorflow.compiler.xla.python import xla_client
 from tensorflow.compiler.plugin.poplar.xla_client.python import ipu_xla_client_pybind as _ipu_xla
 
 from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client_pybind import (
-    IpuDevice, IpuPoplarTargetType, IpuDeviceMeshManager, IpuDeviceMesh,
-    IpuDeviceMeshInfo
+    IpuDevice, IpuPoplarTargetType, IpuDeviceMeshManager, IpuDeviceMesh, IpuPjRtDevice,
+    IpuDeviceMeshInfo, create_ipu_device_mesh_manager, IpuPjRtOptions, get_ipu_client
 )
 
 # Backward compatible declarations.
@@ -89,4 +89,4 @@ def make_ipu_client():
     ipu_config.io_tile_available_memory_proportion \
       = float(io_tile_available_memory_proportion)
 
-  return _ipu_xla.get_ipu_client(asynchronous=True, ipu_config=ipu_config)
+  return _ipu_xla.get_legacy_ipu_client(asynchronous=True, ipu_config=ipu_config)

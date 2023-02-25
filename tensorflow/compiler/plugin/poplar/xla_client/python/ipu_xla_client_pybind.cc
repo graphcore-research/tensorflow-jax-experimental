@@ -20,6 +20,7 @@ limitations under the License.
 
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_device.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_device_mesh.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
 #include "tensorflow/compiler/xla/python/py_client.h"
 #include "tensorflow/compiler/xla/python/types.h"
@@ -70,6 +71,10 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
       .def("__len__", &IpuDeviceMesh::size)
       .def_property_readonly("id", &IpuDeviceMesh::id)
       .def_property_readonly("size", &IpuDeviceMesh::size)
+      .def_property_readonly("type", &IpuDeviceMesh::type)
+      .def_property_readonly("version", &IpuDeviceMesh::version)
+      .def_property_readonly("num_tiles_per_ipu",
+                             &IpuDeviceMesh::num_tiles_per_ipu)
       .def_property_readonly("info", &IpuDeviceMesh::info,
                              py::return_value_policy::reference_internal)
       .def_property_readonly("target", &IpuDeviceMesh::target,
@@ -88,11 +93,69 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
       .def_static("has_local_ipu_hardware",
                   &IpuDeviceMeshManager::hasLocalIpuHardware)
       .def_static("create_ipu_model_manager",
-                  &IpuDeviceMeshManager::createIpuModelManager)
+                  &IpuDeviceMeshManager::createIpuModelManager,
+                  py::arg("num_tiles") = 4, py::arg("version") = "ipu2")
       .def_static("create_ipu_manager",
                   &IpuDeviceMeshManager::createIpuManager);
 
-  // IPU Pjrt classes bindings.
+  // IPU PjRt client bindings.
+  py::class_<IpuPjRtOptions>(m, "IpuPjRtOptions")
+      .def(py::init<>())
+      .def(py::init<std::optional<std::set<int>>, bool, int, std::string>(),
+           py::arg("visible_devices") = std::nullopt,
+           py::arg("use_ipu_model") = false, py::arg("ipu_model_num_tiles") = 4,
+           py::arg("ipu_model_version") = "ipu2")
+      .def_readwrite("visible_devices", &IpuPjRtOptions::visible_devices)
+      .def_readwrite("use_ipu_model", &IpuPjRtOptions::use_ipu_model)
+      .def_readwrite("ipu_model_num_tiles",
+                     &IpuPjRtOptions::ipu_model_num_tiles)
+      .def_readwrite("always_rearrange_copies_on_the_host",
+                     &IpuPjRtOptions::always_rearrange_copies_on_the_host)
+      .def_readwrite("prefetch_data_streams",
+                     &IpuPjRtOptions::prefetch_data_streams);
+
+  py::class_<IpuPjRtDevice, PjRtDevice, ClientAndPtr<IpuPjRtDevice>>(
+      m, "IpuPjRtDevice")
+      .def("__repr__", &IpuPjRtDevice::ToString)
+      .def_property_readonly(
+          "type", [](const IpuPjRtDevice& d) { return d.device_info().type(); })
+      .def_property_readonly(
+          "version",
+          [](const IpuPjRtDevice& d) { return d.device_info().version(); })
+      .def_property_readonly("num_tiles",
+                             [](const IpuPjRtDevice& d) {
+                               return d.device_info().target().getTilesPerIPU();
+                             })
+      .def_property_readonly(
+          "num_worker_contexts",
+          [](const IpuPjRtDevice& d) {
+            return d.device_info().target().getNumWorkerContexts();
+          })
+      .def_property_readonly(
+          "bytes_per_tile",
+          [](const IpuPjRtDevice& d) {
+            return d.device_info().target().getBytesPerTile();
+          })
+      .def_property_readonly(
+          "tile_clock_frequency", [](const IpuPjRtDevice& d) {
+            return d.device_info().target().getTileClockFrequency();
+          });
+
+  m.def("create_ipu_device_mesh_manager", CreateIpuDeviceMeshManager,
+        py::arg("ipu_options"));
+  m.def(
+      "get_ipu_client",
+      [](bool asynchronous, const IpuPjRtOptions& ipu_options)
+          -> StatusOr<std::shared_ptr<PyClient>> {
+        TF_ASSIGN_OR_RETURN(std::unique_ptr<PjRtClient> client,
+                            GetIpuClient(asynchronous, ipu_options));
+        return std::make_shared<PyClient>(std::move(client));
+      },
+      py::arg("asynchronous"), py::arg("ipu_options"));
+
+  // LEGACY IPU Pjrt bindings.
+  // LEGACY IPU Pjrt bindings.
+  // LEGACY IPU Pjrt bindings.
   py::class_<IpuConfig> ipu_config(m, "IpuConfig");
   ipu_config.def(py::init<>())
       .def_readwrite("num_ipus", &IpuConfig::num_ipus)
@@ -127,11 +190,11 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
           [](const IpuDevice& device) { return device.tileClockFrequency(); });
 
   m.def(
-      "get_ipu_client",
+      "get_legacy_ipu_client",
       [](bool asynchronous,
          const IpuConfig& ipu_config) -> StatusOr<std::shared_ptr<PyClient>> {
         TF_ASSIGN_OR_RETURN(std::unique_ptr<PjRtClient> client,
-                            GetIpuClient(asynchronous, ipu_config));
+                            GetLegacyIpuClient(asynchronous, ipu_config));
         return std::make_shared<PyClient>(std::move(client));
       },
       py::arg("asynchronous") = true, py::arg("ipu_config") = IpuConfig());

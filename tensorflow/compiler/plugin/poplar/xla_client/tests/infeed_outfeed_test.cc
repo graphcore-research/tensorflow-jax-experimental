@@ -28,7 +28,7 @@ namespace poplarplugin {
 namespace {
 
 const auto platform = PlatformUtil::GetPlatform("IPU").ValueOrDie();
-const auto ipu_client = GetIpuClient(true, IpuConfig()).ValueOrDie();
+const auto ipu_client = GetLegacyIpuClient(true, IpuConfig()).ValueOrDie();
 
 class InfeedOutfeedTest : public LocalClientTestBase {
  public:
