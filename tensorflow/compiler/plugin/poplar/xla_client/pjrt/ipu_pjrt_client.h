@@ -17,6 +17,7 @@ limitations under the License.
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_device.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
+#include "tensorflow/compiler/xla/pjrt/tfrt_cpu_pjrt_client.h"
 
 namespace xla {
 namespace poplarplugin {
@@ -53,11 +54,13 @@ class IpuPjRtClient : public PjRtClient {
  public:
   /**
    * @brief IPU PjRt client constructor.
+   * @param asynchronous Asynchronous client?
    * @param process_id Process id. Should be 0 for single process.
    * @param ipu_mesh_manager IPU device mesh manager.
    * @param devices Collection of single IPU devices.
    */
-  explicit IpuPjRtClient(int process_id, IpuDeviceMeshManager ipu_mesh_manager,
+  explicit IpuPjRtClient(bool asynchronous, int process_id,
+                         IpuDeviceMeshManager ipu_mesh_manager,
                          std::vector<IpuPjRtDevice> devices);
   virtual ~IpuPjRtClient();
 
@@ -209,6 +212,7 @@ class IpuPjRtClient : public PjRtClient {
   Status Defragment();
 
  private:
+  bool m_asynchronous;
   /** Process id */
   int m_process_index;
   /** IPU device mesh manager. */
@@ -217,6 +221,9 @@ class IpuPjRtClient : public PjRtClient {
   std::vector<IpuPjRtDevice> m_devices;
   /** Vector of pointers to IPU devices. */
   std::vector<PjRtDevice*> m_ptr_devices;
+
+  /** Host/CPU client, to handle buffers on host. */
+  std::unique_ptr<PjRtClient> m_cpu_client;
 
   /** IPU PjRt stream executor. */
   std::unique_ptr<PjRtStreamExecutorClient> m_se_client;

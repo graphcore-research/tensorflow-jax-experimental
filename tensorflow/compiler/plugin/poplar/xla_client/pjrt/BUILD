@@ -30,6 +30,7 @@ poplar_cc_library(
         "//tensorflow/compiler/xla:statusor",
         "//tensorflow/compiler/xla/client:client_library",
         "//tensorflow/compiler/xla/pjrt:pjrt_stream_executor_client",
+        "//tensorflow/compiler/xla/pjrt:tfrt_cpu_pjrt_client",
         "//tensorflow/compiler/xla/python:exceptions",
         "//tensorflow/compiler/xla/service:platform_util",
         "@local_config_poplar//poplar:poplar_libs",

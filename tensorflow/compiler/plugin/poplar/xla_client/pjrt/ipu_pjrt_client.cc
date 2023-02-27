@@ -16,6 +16,7 @@ limitations under the License.
 
 #include <poplar/Graph.hpp>
 
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_buffer.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
 #include "tensorflow/compiler/xla/python/exceptions.h"
@@ -27,10 +28,11 @@ namespace poplarplugin {
 constexpr char kIpuName[] = "ipu";
 static const char kIpuPlatformName[] = "ipu";
 
-IpuPjRtClient::IpuPjRtClient(int process_id,
+IpuPjRtClient::IpuPjRtClient(bool asynchronous, int process_id,
                              IpuDeviceMeshManager ipu_mesh_manager,
                              std::vector<IpuPjRtDevice> devices)
-    : m_process_index{process_id},
+    : m_asynchronous{asynchronous},
+      m_process_index{process_id},
       m_ipu_mesh_manager{std::move(ipu_mesh_manager)},
       m_devices{std::move(devices)} {
   m_ptr_devices.reserve(m_devices.size());
@@ -40,6 +42,8 @@ IpuPjRtClient::IpuPjRtClient(int process_id,
     // Internal device pointer array.
     m_ptr_devices.push_back(&c);
   }
+  // Tfrt CPU client, handling buffers on host side.
+  m_cpu_client = GetTfrtCpuClient(asynchronous, 1).value();
 }
 IpuPjRtClient::~IpuPjRtClient() {}
 
@@ -93,67 +97,73 @@ PjRtRuntimeType IpuPjRtClient::runtime_type() const { return kStreamExecutor; }
 StatusOr<DeviceAssignment> IpuPjRtClient::GetDefaultDeviceAssignment(
     int num_replicas, int num_partitions) const {
   // TODO: default IPU mesh?
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented("Not implemented `GetDefaultDeviceAssignment` on IPU.");
 }
 StatusOr<std::unique_ptr<HloCostAnalysis>> IpuPjRtClient::GetHloCostAnalysis() {
   // TODO: re-direct to StreamExecutor?
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented("Not implemented `GetHloCostAnalysis` on IPU.");
 }
 
 StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
     const XlaComputation& computation, CompileOptions options) {
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented("Not implemented `Compile` on IPU.");
 }
 StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
     mlir::ModuleOp module, CompileOptions options) {
   // TODO: convert back to XLA.
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented("Not implemented `Compile` on IPU.");
 }
 
 // Generates a unique fingerprint for `executable`, may be std::nullopt.
 StatusOr<std::optional<std::string>> IpuPjRtClient::ExecutableFingerprint(
     const PjRtExecutable& executable) const {
   // TODO?
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented("Not implemented `ExecutableFingerprint` on IPU.");
 }
 
 StatusOr<std::string> IpuPjRtClient::SerializeExecutable(
     const PjRtExecutable& executable) const {
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented("Not implemented `SerializeExecutable` on IPU.");
 }
 // Deserializes a serialized executable as produced by
 // SerializeExecutable(). `serialized` must have been produced by a client of
 // the same platform and version as this one.
 StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::DeserializeExecutable(
     absl::string_view serialized, CompileOptions options) {
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented("Not implemented `DeserializeExecutable` on IPU.");
 }
 
 // Creates a buffer on the device without initializing or copying any data.
 StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtClient::CreateUninitializedBuffer(
     const Shape& shape, PjRtDevice* device) {
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented("Not implemented `CreateUninitializedBuffer` on IPU.");
 }
 StatusOr<std::unique_ptr<PjRtClient::AsyncBufferTransferManager>>
 IpuPjRtClient::CreateBuffersForAsyncTransfer(absl::Span<const Shape> shapes,
                                              PjRtDevice* device) {
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented(
+      "Not implemented `CreateBuffersForAsyncTransfer` on IPU.");
 }
 StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtClient::BufferFromHostBuffer(
     const void* data, PrimitiveType type, absl::Span<int64_t const> dims,
     std::optional<absl::Span<int64_t const>> byte_strides,
     HostBufferSemantics host_buffer_semantics,
     std::function<void()> on_done_with_host_buffer, PjRtDevice* device) {
-  return Unimplemented("Not implemented on IPU.");
+  // Create IPU buffer on the HOST. Will be transfered on IPU when required.
+  TF_ASSIGN_OR_RETURN(std::unique_ptr<PjRtBuffer> cpu_buffer,
+                      m_cpu_client->BufferFromHostBuffer(
+                          data, type, dims, byte_strides, host_buffer_semantics,
+                          std::move(on_done_with_host_buffer), nullptr));
+  return IpuPjRtBuffer::createIpuBufferOnHost(std::move(cpu_buffer), device);
 }
 StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtClient::BufferFromHostLiteral(
     const LiteralSlice& literal, PjRtDevice* device) {
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented("Not implemented `BufferFromHostLiteral` on IPU.");
 }
 StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtClient::CreateViewOfDeviceBuffer(
     void* device_ptr, const Shape& shape, PjRtDevice* device,
     std::function<void()> on_delete_callback) {
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented("Not implemented `CreateViewOfDeviceBuffer` on IPU.");
 }
 
 StatusOr<std::vector<std::unique_ptr<PjRtBuffer>>>
@@ -161,28 +171,31 @@ IpuPjRtClient::MakeCrossHostReceiveBuffers(absl::Span<const Shape> shapes,
                                            PjRtDevice* device,
                                            PjRtCrossHostRecvNotifier notifier) {
   // Not necessary on single process?
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented("Not implemented `MakeCrossHostReceiveBuffers` on IPU.");
 }
 StatusOr<std::vector<std::unique_ptr<PjRtBuffer>>>
 IpuPjRtClient::MakeCrossHostReceiveBuffersForGather(
     absl::Span<const Shape> shapes, std::vector<GatherDetails> gather_details,
     PjRtDevice* device, PjRtCrossHostRecvNotifier notifier) {
   // Not necessary on single process?
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented(
+      "Not implemented `MakeCrossHostReceiveBuffersForGather` on IPU.");
 }
 
 StatusOr<ChannelHandle> IpuPjRtClient::CreateChannelHandle() {
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented("Not implemented `CreateChannelHandle` on IPU.");
 }
 StatusOr<ChannelHandle> IpuPjRtClient::CreateDeviceToHostChannelHandle() {
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented(
+      "Not implemented `CreateDeviceToHostChannelHandle` on IPU.");
 }
 StatusOr<ChannelHandle> IpuPjRtClient::CreateHostToDeviceChannelHandle() {
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented(
+      "Not implemented `CreateHostToDeviceChannelHandle` on IPU.");
 }
 
 Status IpuPjRtClient::Defragment() {
-  return Unimplemented("Not implemented on IPU.");
+  return Unimplemented("Not implemented `Defragment` on IPU.");
 }
 
 // Factory methods.
@@ -217,7 +230,7 @@ StatusOr<std::unique_ptr<PjRtClient>> GetIpuClient(
   auto devices = CreateIpuDevices(mesh_manager);
 
   return std::unique_ptr<PjRtClient>(std::make_unique<IpuPjRtClient>(
-      process_id, std::move(mesh_manager), std::move(devices)));
+      asynchronous, process_id, std::move(mesh_manager), std::move(devices)));
 }
 
 }  // namespace poplarplugin

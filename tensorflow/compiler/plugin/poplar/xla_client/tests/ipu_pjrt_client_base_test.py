@@ -22,7 +22,7 @@ import numpy as np
 from tensorflow.compiler.xla.python import xla_client
 from tensorflow.compiler.xla.python import xla_extension
 from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client import (
-    IpuDeviceMesh, IpuDeviceMeshManager, IpuPjRtOptions, get_ipu_client,
+    IpuDeviceMesh, IpuDeviceMeshManager, IpuPjRtOptions, get_ipu_client, IpuTargetType,
     make_ipu_client, IpuPjRtDevice
 )
 
@@ -63,6 +63,7 @@ class IpuPjrtClientBaseTest(parameterized.TestCase):
     self.assertEqual(ipu_device.id, 0)
     self.assertEqual(ipu_device.num_tiles, 16)
     self.assertEqual(ipu_device.version, "ipu21")
+    self.assertEqual(ipu_device.type, IpuTargetType.IPU_MODEL)
 
   @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
   def testIpuPjRtclient__get_ipu_client__ipu_hardware_local_devices(self):
@@ -73,6 +74,89 @@ class IpuPjrtClientBaseTest(parameterized.TestCase):
     self.assertEqual([d.id for d in ipu_devices], list(range(len(ipu_devices))))
     self.assertEqual({d.num_tiles for d in ipu_devices}, {1472})
     self.assertEqual({d.version for d in ipu_devices}, {"ipu2"})
+    self.assertEqual({d.type for d in ipu_devices}, {IpuTargetType.IPU})
+
+
+class IpuPjrtClientBufferTest(parameterized.TestCase):
+
+  @classmethod
+  def setUpClass(cls):
+    # IPU model with 1 device.
+    ipu_options = IpuPjRtOptions(
+        use_ipu_model=True, ipu_model_num_tiles=16, ipu_model_version="ipu2"
+    )
+    cls.backend = get_ipu_client(True, ipu_options)
+
+  def setUp(self):
+    super(IpuPjrtClientBufferTest, self).setUp()
+
+  def testIpuPjRtclient__buffer_from_pyval__base_properties(self):
+    pyval = np.array([[1., 2.]], np.float32)
+    local_buffer = self.backend.buffer_from_pyval(pyval)
+    xla_shape = local_buffer.xla_shape()
+    self.assertEqual(xla_shape.dimensions(), (1, 2))
+    self.assertEqual(np.dtype(xla_shape.element_type()), np.dtype(np.float32))
+    self.assertEqual(local_buffer.device(), self.backend.devices()[0])
+
+  def testIpuPjRtclient__buffer__base_signatures(self):
+    # When extending `DeviceArrayBase`, the object behaves as a `DeviceArray`
+    # and thus needs to correctly implement the following methods.
+    arg = np.array([[1., 2., 3.]], np.float32)
+    buffer = self.backend.buffer_from_pyval(arg)
+    if not isinstance(buffer, xla_client.DeviceArrayBase):
+      raise unittest.SkipTest(
+          "The objectof type {} do not extend DeviceArrayBase".format(type(buffer))
+      )
+
+    self.assertEqual(buffer.__array_priority__, 100)
+    self.assertEqual(buffer.shape, (1, 3))
+    self.assertEqual(buffer.dtype, np.float32)
+    self.assertEqual(buffer.size, 3)
+    self.assertEqual(buffer.ndim, 2)
+
+    self.assertIs(buffer, buffer.block_until_ready())
+    self.assertTrue(buffer.is_ready())
+    buffer.delete()
+    with self.assertRaises(xla_client.XlaRuntimeError):
+      buffer.block_until_ready()
+    with self.assertRaises(xla_client.XlaRuntimeError):
+      buffer.is_ready()
+
+  def testIpuPjRtclient__buffer__copy_to_host(self):
+    arg0 = np.array([[1., 2.]], np.float32)
+    arg1 = np.array([[3., 4.]], np.float32)
+    arg0_buffer = self.backend.buffer_from_pyval(arg0)
+    arg1_buffer = self.backend.buffer_from_pyval(arg1)
+    # Prefetch two buffers using copy_to_host_async, and then retrieve their
+    # values using to_py.
+    arg0_buffer.copy_to_host_async()
+    arg0_buffer.copy_to_host_async()  # Duplicate calls don't do anything.
+    arg1_buffer.copy_to_host_async()
+    np.testing.assert_equal(arg0, arg0_buffer.to_py())
+    np.testing.assert_equal(arg1, arg1_buffer.to_py())
+    # copy_to_host_async does nothing after to_py is called.
+    arg0_buffer.copy_to_host_async()
+    np.testing.assert_equal(arg0, arg0_buffer.to_py())
+
+  def testIpuPjRtclient__buffer__on_device_size_in_bytes(self):
+    arg0 = np.array([])
+    arg1 = np.array([[0., 1., 2.]], np.float32)
+    arg2 = np.array([[3., 4., 5.]], np.float16)
+    arg0_buffer = self.backend.buffer_from_pyval(arg0)
+    arg1_buffer = self.backend.buffer_from_pyval(arg1)
+    arg2_buffer = self.backend.buffer_from_pyval(arg2)
+    self.assertEqual(arg0_buffer.on_device_size_in_bytes(), 0)
+    # IPU size. Should align with CPU?
+    self.assertEqual(arg1_buffer.on_device_size_in_bytes(), 3 * 4)
+    self.assertEqual(arg2_buffer.on_device_size_in_bytes(), 3 * 2)
+
+  def testIpuPjRtclient__buffer__numpy_array_zero_copy(self):
+    # IPU buffer on HOST should be zero-copy by default.
+    indata = np.array([[0., 1., 2.]], np.float32)
+    buffer = self.backend.buffer_from_pyval(indata)
+    outdata = np.asarray(buffer)
+    self.assertEqual(outdata.ctypes.data, indata.ctypes.data)
+    self.assertEqual(buffer.unsafe_buffer_pointer(), indata.ctypes.data)
 
 
 if __name__ == "__main__":
