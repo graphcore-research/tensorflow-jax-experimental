@@ -32,7 +32,7 @@ jobs:
 
   # XLA/PJRT IPU client unit tests
   pjrt_ipu_client_unit_tests_ipu_model:
-    runs-on: [self-hosted, Linux, X64, 20.04, Ubuntu]
+    runs-on: [self-hosted, Linux, X64, 20.04, Ubuntu, pod16]
     container: graphcore/pytorch:3.1.0-ubuntu-20.04
     timeout-minutes: 120
     steps:
@@ -63,7 +63,8 @@ jobs:
           lscpu
           export TF_POPLAR_BASE=/opt/poplar/
           bazel build --config=monolithic --output_filter=DONT_MATCH_ANYTHING //tensorflow/compiler/plugin/poplar/xla_client:ipu_xla_client
-          bazel build --config=monolithic //tensorflow/compiler/plugin/poplar/xla_client/tests:all_tests
+          bazel build --config=monolithic --output_filter=DONT_MATCH_ANYTHING //tensorflow/compiler/plugin/poplar/xla_client/tests:all_tests
       - name: Tests IPU XLA/PJRT client
         run: |
+          export TF_POPLAR_BASE=/opt/poplar/
           bazel test --config=monolithic --jobs=4 --verbose_failures --cache_test_results=no --test_timeout=240,360,900,3600 --test_size_filters=small,medium,large --flaky_test_attempts=1 --test_env='TF_POPLAR_FLAGS=--use_ipu_model --ipu_model_tiles=8 --max_compilation_threads=1 --max_infeed_threads=2' //tensorflow/compiler/plugin/poplar/xla_client/tests:all_tests
