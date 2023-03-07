@@ -38,6 +38,7 @@ class IpuPjrtDeviceTest(parameterized.TestCase):
     manager = IpuDeviceMeshManager.create_ipu_model_manager(num_tiles=16)
     self.assertEqual(len(manager), 1)
     mesh = manager[0]
+    self.assertEqual(manager.type, IpuTargetType.IPU_MODEL)
     self.assertIsInstance(mesh, IpuDeviceMesh)
     self.assertEqual(mesh.id, 0)
     # Default: IPU mk2 hardware.
@@ -50,6 +51,7 @@ class IpuPjrtDeviceTest(parameterized.TestCase):
     manager = IpuDeviceMeshManager.create_ipu_manager()
     meshes = manager.meshes
 
+    self.assertEqual(manager.type, IpuTargetType.IPU)
     ipu_ids = sorted([m.id for m in meshes if len(m) == 1])
     # Single IPUs should be the first ids.
     self.assertEqual(ipu_ids[0], 0)
@@ -69,6 +71,7 @@ class IpuPjrtDeviceTest(parameterized.TestCase):
     manager = IpuDeviceMeshManager.create_ipu_manager()
     # Existing IPU mesh.
     mesh = manager.find([0, 1])
+    self.assertEqual(manager.type, IpuTargetType.IPU)
     self.assertEqual(mesh.info.ipu_ids, [0, 1])
     # No mesh with [0, 2]
     with self.assertRaises(IndexError):
@@ -80,6 +83,7 @@ class IpuPjrtDeviceTest(parameterized.TestCase):
     ipu_manager = create_ipu_device_mesh_manager(ipu_options)
 
     self.assertIsInstance(ipu_manager, IpuDeviceMeshManager)
+    self.assertEqual(ipu_manager.type, IpuTargetType.IPU)
     self.assertGreaterEqual(len(ipu_manager), 1)
     self.assertEqual(ipu_manager[0].type, IpuTargetType.IPU)
     self.assertEqual(ipu_manager[0].num_tiles_per_ipu, 1472)
@@ -92,10 +96,47 @@ class IpuPjrtDeviceTest(parameterized.TestCase):
     ipu_manager = create_ipu_device_mesh_manager(ipu_options)
 
     self.assertIsInstance(ipu_manager, IpuDeviceMeshManager)
+    self.assertEqual(ipu_manager.type, IpuTargetType.IPU_MODEL)
     self.assertEqual(len(ipu_manager), 1)
     self.assertEqual(ipu_manager[0].type, IpuTargetType.IPU_MODEL)
     self.assertEqual(ipu_manager[0].num_tiles_per_ipu, 16)
     self.assertEqual(ipu_manager[0].version, "ipu21")
+
+  @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
+  def testIpuDeviceMeshManager__default_mesh__multi_ipus_hardware(self):
+    ipu_options = IpuPjRtOptions(use_ipu_model=False)
+    ipu_manager = create_ipu_device_mesh_manager(ipu_options)
+    if len(ipu_manager) <= 3:
+      raise unittest.SkipTest("Not enough IPUs to run `default_mesh` unit test.")
+
+    # First IPU mesh of size 1
+    m = ipu_manager.default_mesh(1)
+    assert m.size == 1
+    assert m.id == 0
+    # First IPU mesh of size 2
+    m = ipu_manager.default_mesh(2)
+    assert m.size == 2
+    assert m.id == min([m.id for m in ipu_manager.meshes if m.size == 2])
+
+  def testIpuDeviceMeshManager__default_mesh__ipu_model(self):
+    ipu_options = IpuPjRtOptions(
+        use_ipu_model=True, ipu_model_num_tiles=16, ipu_model_version="ipu21"
+    )
+    ipu_manager = create_ipu_device_mesh_manager(ipu_options)
+    m = ipu_manager.default_mesh(1)
+    assert m.id == 0
+    # No IPU model mesh of size 2 (i.e. no comms between IPUs supported)
+    with self.assertRaises(IndexError):
+      ipu_manager.default_mesh(2)
+
+  @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
+  def testIpuDeviceMeshManager__from_mesh_id_to_index__proper_result(self):
+    ipu_options = IpuPjRtOptions(use_ipu_model=False)
+    ipu_manager = create_ipu_device_mesh_manager(ipu_options)
+    # No masking of devices => two list should coincide.
+    ids = [m.id for m in ipu_manager]
+    indexes = [ipu_manager.from_mesh_id_to_index(v) for v in ids]
+    self.assertEqual(indexes, ids)
 
 
 if __name__ == "__main__":

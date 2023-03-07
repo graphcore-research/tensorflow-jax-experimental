@@ -58,10 +58,12 @@ class IpuPjRtClient : public PjRtClient {
    * @param process_id Process id. Should be 0 for single process.
    * @param ipu_mesh_manager IPU device mesh manager.
    * @param devices Collection of single IPU devices.
+   * @param options IPU client options.
    */
   explicit IpuPjRtClient(bool asynchronous, int process_id,
                          IpuDeviceMeshManager ipu_mesh_manager,
-                         std::vector<IpuPjRtDevice> devices);
+                         std::vector<IpuPjRtDevice> devices,
+                         const IpuPjRtOptions& options);
   virtual ~IpuPjRtClient();
 
   // Return the process index of this client. Always 0 in single-process
@@ -211,6 +213,13 @@ class IpuPjRtClient : public PjRtClient {
   // Defragment device memory.
   Status Defragment();
 
+  // IPU PjRt client specific interface.
+  // IPU PjRt client specific interface.
+  // IPU PjRt client specific interface.
+
+  // IPU mesh manager
+  const IpuDeviceMeshManager& ipu_mesh_manager() const noexcept;
+
  private:
   bool m_asynchronous;
   /** Process id */
@@ -221,15 +230,17 @@ class IpuPjRtClient : public PjRtClient {
   std::vector<IpuPjRtDevice> m_devices;
   /** Vector of pointers to IPU devices. */
   std::vector<PjRtDevice*> m_ptr_devices;
+  /** IPU client options. */
+  IpuPjRtOptions m_options;
 
   /** Host/CPU client, to handle buffers on host. */
   std::unique_ptr<PjRtClient> m_cpu_client;
 
   /** IPU PjRt stream executor. */
-  std::unique_ptr<PjRtStreamExecutorClient> m_se_client;
+  std::unique_ptr<PjRtStreamExecutorClient> m_se_mesh_client;
   /** Stream executor devices: all possible IPU meshes / Poplar devices.
    */
-  std::vector<std::unique_ptr<PjRtStreamExecutorDevice>> m_se_device_meshes;
+  std::vector<std::unique_ptr<PjRtStreamExecutorDevice>> m_se_mesh_devices;
 };
 
 /**

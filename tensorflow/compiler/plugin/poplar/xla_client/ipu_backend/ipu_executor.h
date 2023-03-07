@@ -26,6 +26,9 @@ namespace se = stream_executor;
 namespace xla {
 namespace poplarplugin {
 
+/**
+ * @brief IPU executor: specialization of Poplar executor for JAX.
+ */
 class IpuExecutor : public PoplarExecutor {
  public:
   IpuExecutor();
@@ -46,6 +49,10 @@ class IpuExecutor : public PoplarExecutor {
   }
 
   Status RegisterOutfeeds(const TranslatedOutfeedInfos& outfeed_infos) override;
+
+  /** IPU device management. */
+  Status AttachDevice();
+  Status DetachDevice();
 
  private:
   void ConnectInfeedsToStreamCallback(

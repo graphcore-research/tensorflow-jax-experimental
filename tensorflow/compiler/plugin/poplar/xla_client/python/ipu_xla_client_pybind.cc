@@ -81,14 +81,22 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
                              py::return_value_policy::reference_internal);
 
   py::class_<IpuDeviceMeshManager>(m, "IpuDeviceMeshManager")
-      .def("mesh", &IpuDeviceMeshManager::mesh, py::arg("id"),
-           py::return_value_policy::reference_internal)
-      .def("find", &IpuDeviceMeshManager::find, py::arg("ids"),
-           py::return_value_policy::reference_internal)
+      .def("find",
+           py::overload_cast<IdType>(&IpuDeviceMeshManager::find, py::const_),
+           py::arg("id"), py::return_value_policy::reference_internal)
+      .def("find",
+           py::overload_cast<std::vector<IdType>>(&IpuDeviceMeshManager::find,
+                                                  py::const_),
+           py::arg("ids"), py::return_value_policy::reference_internal)
       .def("__len__", &IpuDeviceMeshManager::size)
-      .def("__getitem__", &IpuDeviceMeshManager::mesh, py::arg("id"),
+      .def("__getitem__", &IpuDeviceMeshManager::at, py::arg("idx"),
            py::return_value_policy::reference_internal)
+      .def("default_mesh", &IpuDeviceMeshManager::defaultMesh,
+           py::arg("num_ipus"), py::return_value_policy::reference_internal)
+      .def("from_mesh_id_to_index", &IpuDeviceMeshManager::fromMeshIdToIndex,
+           py::arg("mesh_id"))
       .def_property_readonly("size", &IpuDeviceMeshManager::size)
+      .def_property_readonly("type", &IpuDeviceMeshManager::type)
       .def_property_readonly("meshes", &IpuDeviceMeshManager::meshes)
       .def_static("has_local_ipu_hardware",
                   &IpuDeviceMeshManager::hasLocalIpuHardware)

@@ -68,6 +68,26 @@ static void InitializeIpuPlatform() {
   SE_CHECK_OK(se::MultiPlatformManager::RegisterPlatform(std::move(platform)));
 }
 
+int IpuPlatform::VisibleDeviceCount() const {
+  const auto poplar_devices = PoplarExecutor::GetDeviceManager().getDevices();
+  int num_devices = 0;
+  // Count all Poplar IPU hardware devices.
+  // TODO: support legacy mode, with only single IPU devices.
+  for (const auto& d : poplar_devices) {
+    const auto& target = d.getTarget();
+    // Ignore non real IPU hardware.
+    if (target.getTargetType() != poplar::TargetType::IPU) {
+      continue;
+    }
+    num_devices++;
+  }
+  // Model/virtual devices: 2 max allowed.
+  if (num_devices == 0) {
+    num_devices = 2;
+  }
+  return num_devices;
+}
+
 }  // namespace poplarplugin
 }  // namespace xla
 

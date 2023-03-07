@@ -16,10 +16,19 @@ limitations under the License.
 
 #include <poplar/Graph.hpp>
 
+#include "tensorflow/compiler/plugin/poplar/driver/config.pb.h"
+#include "tensorflow/compiler/plugin/poplar/driver/poplar_executor.h"
+#include "tensorflow/compiler/plugin/poplar/driver/poplar_platform.h"
+#include "tensorflow/compiler/plugin/poplar/driver/tools/flags.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/ipu_executor.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_buffer.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_device.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_executable.h"
+#include "tensorflow/compiler/xla/client/client_library.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
 #include "tensorflow/compiler/xla/python/exceptions.h"
+#include "tensorflow/compiler/xla/service/platform_util.h"
 #include "tensorflow/core/platform/errors.h"
 
 namespace xla {
@@ -28,13 +37,203 @@ namespace poplarplugin {
 constexpr char kIpuName[] = "ipu";
 static const char kIpuPlatformName[] = "ipu";
 
+/**
+ * @brief Build IPU SE options to pass to IPU XLA stream executor backend.
+ *
+ * This method is bridging to the original IPU XLA backend: building the proper
+ * flags and options to pass to the former.
+ */
+IpuOptions MakeIpuStreamExecutorOptions(
+    const IpuDeviceMeshManager& ipu_mesh_manager,
+    const IpuPjRtOptions& ipu_options) {
+  CHECK_GT(ipu_mesh_manager.size(), 0);
+  const auto& meshes = ipu_mesh_manager.meshes();
+  IpuOptions se_options;
+
+  // Create all IPU devices.
+  if (ipu_mesh_manager.type() == poplar::TargetType::IPU_MODEL) {
+    for (const auto& m : meshes) {
+      // XLA client requiring auto count for IPU model.
+      se_options.add_device_config()->set_auto_count(1);
+    }
+    // IPU model options.
+    const auto& m = ipu_mesh_manager.meshes()[0];
+    se_options.mutable_ipu_model_config()->set_tiles_per_ipu(
+        m.num_tiles_per_ipu());
+    se_options.mutable_ipu_model_config()->set_ipu_model_version(m.version());
+    // Use `compile_ipu_code` option?
+  } else {
+    for (const auto& m : meshes) {
+      // IPU hardware: use proper Poplar id.
+      se_options.add_device_config()->set_cfg_index(m.id());
+    }
+  }
+
+  // Prefetch config + rearrange copies
+  se_options.set_prefetch_data_streams(ipu_options.prefetch_data_streams);
+  auto* speed_size_cfg = se_options.mutable_speed_size_config();
+  speed_size_cfg->set_always_rearrange_copies_on_the_host(
+      ipu_options.always_rearrange_copies_on_the_host);
+
+  // IOTilesConfig (default as IO tiles not supported)
+  se_options.set_num_io_tiles(0);
+  se_options.set_place_ops_on_io_tiles(false);
+  se_options.set_io_tile_available_memory_proportion(0.9);
+  return se_options;
+}
+
+/**
+ * @brief Check consistency/compatibility between IPU device mesh and Poplar
+ * target.
+ */
+Status CheckIpuMeshPoplarTarget(const IpuDeviceMeshInfo& mesh,
+                                const poplar::Target& target) {
+  if (mesh.type() != target.getTargetType()) {
+    return FailedPrecondition("Inconsistent IPU target type");
+  }
+  CHECK_EQ(mesh.target().getNumIPUs(), target.getNumIPUs());
+  CHECK_EQ(mesh.target().getTilesPerIPU(), target.getTilesPerIPU());
+  return Status::OK();
+}
+
+/**
+ * @brief Build XLA local client, used by stream executor client.
+ *
+ * Setting up proper IPU Poplar flags if necessary (e.g. IPU model).
+ */
+StatusOr<LocalClient*> GetIpuMeshXlaClient(
+    const IpuDeviceMeshManager& ipu_mesh_manager) {
+  TF_ASSIGN_OR_RETURN(se::Platform * platform,
+                      PlatformUtil::GetPlatform("IPU"));
+
+  // TODO: some check in XLA IPU client?
+  // if (platform->VisibleDeviceCount() <= 0) {
+  //   return FailedPrecondition("No visible Graphcore IPU devices.");
+  // }
+  // Set Poplar global flags. WARNING: const_cast to mutate directly flags...
+  PoplarXlaFlags& poplar_flags =
+      const_cast<PoplarXlaFlags&>(PoplarXlaFlags::Get());
+  if (ipu_mesh_manager.type() == poplar::TargetType::IPU_MODEL) {
+    // IPU model properties.
+    poplar_flags.use_ipu_model = true;
+    poplar_flags.ipu_model_tiles =
+        ipu_mesh_manager.meshes()[0].num_tiles_per_ipu();
+  } else {
+    // Always make sure we deactivate IPU model!
+    poplar_flags.use_ipu_model = false;
+  }
+
+  LocalClientOptions options;
+  options.set_platform(platform);
+  const auto& ipu_meshes = ipu_mesh_manager.meshes();
+  CHECK_GT(ipu_meshes.size(), 0);
+  // Available IPU meshes (using id provided by Poplar).
+  std::set<int> allowed_devices;
+  for (const auto& m : ipu_meshes) {
+    allowed_devices.insert(m.id());
+  }
+  options.set_allowed_devices(allowed_devices);
+  return ClientLibrary::GetOrCreateLocalClient(options);
+}
+
+/**
+ * @brief Build LocalDeviceState for each IPU (valid) mesh.
+ */
+StatusOr<std::vector<std::unique_ptr<LocalDeviceState>>>
+BuildLocalSEMeshDeviceStates(LocalClient* xla_mesh_client, bool asynchronous,
+                             const IpuDeviceMeshManager& ipu_mesh_manager,
+                             const IpuPjRtOptions& ipu_options) {
+  std::vector<std::unique_ptr<LocalDeviceState>> local_mesh_devices;
+  const auto& meshes = ipu_mesh_manager.meshes();
+  CHECK_GT(meshes.size(), 0);
+  // Should have consistent num devices between IPU meshes and XLA client.
+  CHECK_EQ(meshes.size(), xla_mesh_client->device_count());
+  CHECK_EQ(meshes.size(), xla_mesh_client->backend().device_count());
+
+  // IPU stream executor options.
+  const auto ipu_se_options =
+      MakeIpuStreamExecutorOptions(ipu_mesh_manager, ipu_options);
+  // Make sure all stream executors are first reset.
+  for (size_t i = 0; i < meshes.size(); ++i) {
+    se::StreamExecutor* executor =
+        xla_mesh_client->backend().stream_executor(i).ValueOrDie();
+    auto* e = static_cast<PoplarExecutor*>(executor->implementation());
+    e->Reset();
+  }
+  // Configure IPU XLA stream executors.
+  for (size_t i = 0; i < meshes.size(); ++i) {
+    // Configure Poplar executor IPU (mesh) device.
+    se::StreamExecutor* executor =
+        xla_mesh_client->backend().stream_executor(i).ValueOrDie();
+    auto* e = static_cast<IpuExecutor*>(executor->implementation());
+    TF_RETURN_IF_ERROR(e->ConfigurePoplarDevice(ipu_se_options));
+    // Detach IPU device: stream executor should not need to keep hand on
+    // device (only requiring target for compilation).
+    e->DetachDevice();
+    // Check that the Poplar target is consistent with IPU mesh description.
+    CHECK(e->HasPoplarTarget());
+    TF_RETURN_IF_ERROR(CheckIpuMeshPoplarTarget(meshes[i].info(),
+                                                e->GetOrCreatePoplarTarget()));
+
+    local_mesh_devices.push_back(absl::make_unique<LocalDeviceState>(
+        executor, xla_mesh_client, LocalDeviceState::kComputeSynchronized,
+        asynchronous,
+        /*allow_event_reuse=*/true, /*use_callback_stream=*/true));
+  }
+  return std::move(local_mesh_devices);
+}
+
+/**
+ * @brief Build IPU local stream-executor devices.
+ */
+std::vector<std::unique_ptr<PjRtStreamExecutorDevice>> BuildLocalSEMeshDevices(
+    std::vector<std::unique_ptr<LocalDeviceState>> local_device_states) {
+  std::vector<std::unique_ptr<PjRtStreamExecutorDevice>> devices;
+  for (auto& local_device_state : local_device_states) {
+    int device_ordinal = local_device_state->device_ordinal();
+    const se::DeviceDescription& description =
+        local_device_state->executor()->GetDeviceDescription();
+    auto device = absl::make_unique<PjRtStreamExecutorDevice>(
+        device_ordinal, std::move(local_device_state), description.name());
+    devices.push_back(std::move(device));
+  }
+  return devices;
+}
+
+/**
+ * @brief Create IPU stream-executor mesh client: mapping all Poplar
+ * devices (i.e. all possible combination of IPUs).
+ */
+StatusOr<std::unique_ptr<PjRtStreamExecutorClient>> MakeIpuSEMeshClient(
+    bool asynchronous, const IpuDeviceMeshManager& ipu_mesh_manager,
+    const IpuPjRtOptions& ipu_options) {
+  TF_ASSIGN_OR_RETURN(LocalClient * mesh_xla_client,
+                      GetIpuMeshXlaClient(ipu_mesh_manager));
+  TF_ASSIGN_OR_RETURN(
+      std::vector<std::unique_ptr<LocalDeviceState>> local_mesh_device_states,
+      BuildLocalSEMeshDeviceStates(mesh_xla_client, asynchronous,
+                                   ipu_mesh_manager, ipu_options));
+
+  std::vector<std::unique_ptr<PjRtStreamExecutorDevice>> mesh_devices;
+  mesh_devices = BuildLocalSEMeshDevices(std::move(local_mesh_device_states));
+  return std::make_unique<PjRtStreamExecutorClient>(
+      kIpuName, mesh_xla_client, std::move(mesh_devices),
+      /*node_id=*/0,
+      /*allocator=*/nullptr,
+      /*host_memory_allocator=*/nullptr,
+      /*should_stage_host_to_device_transfers=*/false,
+      /*gpu_run_options=*/nullptr);
+}
+
 IpuPjRtClient::IpuPjRtClient(bool asynchronous, int process_id,
                              IpuDeviceMeshManager ipu_mesh_manager,
-                             std::vector<IpuPjRtDevice> devices)
+                             std::vector<IpuPjRtDevice> devices,
+                             const IpuPjRtOptions& options)
     : m_asynchronous{asynchronous},
       m_process_index{process_id},
       m_ipu_mesh_manager{std::move(ipu_mesh_manager)},
-      m_devices{std::move(devices)} {
+      m_devices{std::move(devices)},
+      m_options{options} {
   m_ptr_devices.reserve(m_devices.size());
   for (auto& c : m_devices) {
     // Set client pointer in all local IPU devices.
@@ -44,8 +243,21 @@ IpuPjRtClient::IpuPjRtClient(bool asynchronous, int process_id,
   }
   // Tfrt CPU client, handling buffers on host side.
   m_cpu_client = GetTfrtCpuClient(asynchronous, 1).value();
+
+  // IPU stream executor client, representing IPU meshes.
+  m_se_mesh_client =
+      MakeIpuSEMeshClient(true, m_ipu_mesh_manager, m_options).ValueOrDie();
 }
-IpuPjRtClient::~IpuPjRtClient() {}
+IpuPjRtClient::~IpuPjRtClient() {
+  // Delete CPU and IPU stream executor clients.
+  m_cpu_client.reset();
+  m_se_mesh_client.reset();
+
+  // XLA destroy client => necessary for testing different device
+  // configurations.
+  // TODO: more flexible mechanisme to only delete "ipu" XLA client, not all.
+  ClientLibrary::DestroyLocalInstances();
+}
 
 int IpuPjRtClient::process_index() const { return m_process_index; }
 int IpuPjRtClient::device_count() const { return m_devices.size(); }
@@ -106,19 +318,42 @@ StatusOr<std::unique_ptr<HloCostAnalysis>> IpuPjRtClient::GetHloCostAnalysis() {
 
 StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
     const XlaComputation& computation, CompileOptions options) {
-  return Unimplemented("Not implemented `Compile` on IPU.");
+  // const auto& build_opts = options.executable_build_options;
+  // Number of devices required for running the computation.
+  // const size_t num_devices =
+  //     build_opts.num_replicas() * build_opts.num_partitions();
+  // Default mesh. TODO: is there already a device assignment?
+  // const auto& mesh = m_ipu_mesh_manager.defaultMesh(num_devices);
+  // const size_t index = m_ipu_mesh_manager.fromMeshIdToIndex(mesh.id());
+  // std::cerr << "COMPILE OPTIONS: "
+  //           << options.executable_build_options.has_device_assignment() << "
+  //           / "
+  //           << options.executable_build_options.num_replicas() << " / "
+  //           << options.executable_build_options.num_partitions() <<
+  //           std::endl;
+
+  // Compilation using stream executor IPU mesh client.
+  // TODO: change device assignment?
+  TF_ASSIGN_OR_RETURN(std::unique_ptr<PjRtExecutable> pjrt_executable,
+                      m_se_mesh_client->Compile(computation, options));
+  // Cast back to SE executable.
+  std::unique_ptr<PjRtStreamExecutorExecutable> pjrt_se_executable(
+      static_cast<PjRtStreamExecutorExecutable*>(pjrt_executable.release()));
+  // Build IPU PjRt executable, wrappin the later.
+  return std::unique_ptr<PjRtExecutable>(
+      std::make_unique<IpuPjRtExecutable>(std::move(pjrt_se_executable), this));
 }
 StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
     mlir::ModuleOp module, CompileOptions options) {
   // TODO: convert back to XLA.
-  return Unimplemented("Not implemented `Compile` on IPU.");
+  return Unimplemented("Not implemented MLIR `Compile` on IPU.");
 }
 
 // Generates a unique fingerprint for `executable`, may be std::nullopt.
 StatusOr<std::optional<std::string>> IpuPjRtClient::ExecutableFingerprint(
     const PjRtExecutable& executable) const {
-  // TODO?
-  return Unimplemented("Not implemented `ExecutableFingerprint` on IPU.");
+  // Same as stream executor implementation. TODO: more useful answer?
+  return std::optional<std::string>();
 }
 
 StatusOr<std::string> IpuPjRtClient::SerializeExecutable(
@@ -198,6 +433,10 @@ Status IpuPjRtClient::Defragment() {
   return Unimplemented("Not implemented `Defragment` on IPU.");
 }
 
+const IpuDeviceMeshManager& IpuPjRtClient::ipu_mesh_manager() const noexcept {
+  return m_ipu_mesh_manager;
+}
+
 // Factory methods.
 IpuDeviceMeshManager CreateIpuDeviceMeshManager(
     const IpuPjRtOptions& ipu_options) {
@@ -230,7 +469,8 @@ StatusOr<std::unique_ptr<PjRtClient>> GetIpuClient(
   auto devices = CreateIpuDevices(mesh_manager);
 
   return std::unique_ptr<PjRtClient>(std::make_unique<IpuPjRtClient>(
-      asynchronous, process_id, std::move(mesh_manager), std::move(devices)));
+      asynchronous, process_id, std::move(mesh_manager), std::move(devices),
+      ipu_options));
 }
 
 }  // namespace poplarplugin

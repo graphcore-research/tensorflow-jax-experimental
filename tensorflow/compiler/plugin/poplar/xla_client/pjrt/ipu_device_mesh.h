@@ -162,13 +162,22 @@ class IpuDeviceMeshManager {
 
   /** Size of the IPU mesh */
   size_t size() const noexcept { return m_meshes.size(); }
+  /** Type of IPU used in the mesh. */
+  poplar::TargetType type() const;
 
-  /** IPU meshes supported. */
+  /** Returns all IPU meshes supported. */
   const std::vector<IpuDeviceMesh>& meshes() const noexcept { return m_meshes; }
-  /** Get an IPU mesh from id. */
-  const IpuDeviceMesh& mesh(IdType id) const;
-  /** Find an IPU mesh from the list of IPU ids. */
+  /** Get an IPU mesh at a given index (potentially different from id!). */
+  const IpuDeviceMesh& at(std::size_t idx) const;
+  /** Get an IPU mesh from its IPU id. */
+  const IpuDeviceMesh& find(IdType id) const;
+  /** Find an IPU mesh from a list of individual IPU ids. */
   const IpuDeviceMesh& find(std::vector<IdType> ids) const;
+
+  /** Get the default mesh for a given number of IPUs required. */
+  const IpuDeviceMesh& defaultMesh(std::size_t num_ipus) const;
+  /** Convert IPU mesh Id to index in the manager. */
+  std::size_t fromMeshIdToIndex(IdType mesh_id) const;
 
  private:
   IpuDeviceMeshManager(std::vector<IpuDeviceMesh> meshes);

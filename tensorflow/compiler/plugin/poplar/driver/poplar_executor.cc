@@ -1424,6 +1424,27 @@ void PoplarExecutor::IPUConfig::SetTarget(const poplar::Target& target) {
   target_ = target;
 }
 
+bool PoplarExecutor::IPUConfig::AttachDevice()
+{
+  std::lock_guard<std::recursive_mutex> g(mutex_);
+  CHECK(device_);
+  if (device_attached_) {
+    return true;
+  }
+  device_attached_ = device_->attach();
+  // Was it successful?
+  return device_attached_;
+}
+
+bool PoplarExecutor::IPUConfig::DetachDevice()
+{
+  std::lock_guard<std::recursive_mutex> g(mutex_);
+  CHECK(device_);
+  device_->detach();
+  device_attached_ = false;
+  return true;
+}
+
 std::string PoplarExecutor::GetDeviceTargetName() const {
   return poplar::toString(ipu_.TargetOrDie().getTargetType());
 }

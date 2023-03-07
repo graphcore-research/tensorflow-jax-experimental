@@ -1016,6 +1016,10 @@ class PoplarExecutor : public se::internal::StreamExecutorInterface {
     void SetTarget(const poplar::Target& target);
     void ClearDevice();
     void Clear();
+
+    bool AttachDevice();
+    bool DetachDevice();
+
     std::recursive_mutex& Mutex();
 
    private:

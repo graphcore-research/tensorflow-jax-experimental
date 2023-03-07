@@ -108,7 +108,19 @@ bool IpuDeviceMeshManager::hasLocalIpuHardware() noexcept {
   return !devices.empty();
 }
 
-const IpuDeviceMesh& IpuDeviceMeshManager::mesh(IdType id) const {
+poplar::TargetType IpuDeviceMeshManager::type() const {
+  // If empty => throw an error.
+  if (m_meshes.empty()) {
+    throw std::runtime_error("No IPU device registered in the IPU manager.");
+  }
+  return m_meshes[0].type();
+}
+
+const IpuDeviceMesh& IpuDeviceMeshManager::at(std::size_t idx) const {
+  return m_meshes.at(idx);
+}
+
+const IpuDeviceMesh& IpuDeviceMeshManager::find(IdType id) const {
   auto it = std::find_if(m_meshes.begin(), m_meshes.end(),
                          [id](const IpuDeviceMesh& m) { return m.id() == id; });
   if (it == m_meshes.end()) {
@@ -129,6 +141,30 @@ const IpuDeviceMesh& IpuDeviceMeshManager::find(std::vector<IdType> ids) const {
         absl::StrFormat("Not IPU device mesh with IPU IDs: [%s]", s));
   }
   return *it;
+}
+
+const IpuDeviceMesh& IpuDeviceMeshManager::defaultMesh(
+    std::size_t num_ipus) const {
+  CHECK_GT(num_ipus, 0);
+  auto it = std::find_if(
+      m_meshes.begin(), m_meshes.end(),
+      [&num_ipus](const IpuDeviceMesh& m) { return m.size() == num_ipus; });
+  if (it == m_meshes.end()) {
+    throw std::out_of_range(
+        absl::StrFormat("Not IPU device mesh found with %i IPUs", num_ipus));
+  }
+  return *it;
+}
+
+std::size_t IpuDeviceMeshManager::fromMeshIdToIndex(IdType mesh_id) const {
+  // TODO: cache the mapping.
+  for (std::size_t idx = 0; idx < m_meshes.size(); ++idx) {
+    if (m_meshes[idx].id() == mesh_id) {
+      return idx;
+    }
+  }
+  throw std::out_of_range(
+      absl::StrFormat("Not IPU device mesh found with ID: %i", mesh_id));
 }
 
 }  // namespace poplarplugin

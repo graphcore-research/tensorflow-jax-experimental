@@ -18,6 +18,7 @@ import unittest
 from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
+import gc
 
 from tensorflow.compiler.xla.python import xla_client
 from tensorflow.compiler.xla.python import xla_extension
@@ -25,6 +26,8 @@ from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client import (
     IpuDeviceMesh, IpuDeviceMeshManager, IpuPjRtOptions, get_ipu_client, IpuTargetType,
     make_ipu_client, IpuPjRtDevice
 )
+
+ops = xla_client.ops
 
 # Skipping some tests if no local IPU hardware.
 ipu_hw_available = IpuDeviceMeshManager.has_local_ipu_hardware()
@@ -76,6 +79,14 @@ class IpuPjrtClientBaseTest(parameterized.TestCase):
     self.assertEqual({d.version for d in ipu_devices}, {"ipu2"})
     self.assertEqual({d.type for d in ipu_devices}, {IpuTargetType.IPU})
 
+  @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
+  def testIpuPjRtclient__get_ipu_client__multi_clients_create_delete(self):
+    ipu_client = get_ipu_client(True, IpuPjRtOptions())
+    # Check resources are properly freed.
+    del ipu_client
+    gc.collect()
+    get_ipu_client(True, IpuPjRtOptions())
+
 
 class IpuPjrtClientBufferTest(parameterized.TestCase):
 
@@ -83,7 +94,7 @@ class IpuPjrtClientBufferTest(parameterized.TestCase):
   def setUpClass(cls):
     # IPU model with 1 device.
     ipu_options = IpuPjRtOptions(
-        use_ipu_model=True, ipu_model_num_tiles=16, ipu_model_version="ipu2"
+        use_ipu_model=True, ipu_model_num_tiles=4, ipu_model_version="ipu2"
     )
     cls.backend = get_ipu_client(True, ipu_options)
 
@@ -157,6 +168,27 @@ class IpuPjrtClientBufferTest(parameterized.TestCase):
     outdata = np.asarray(buffer)
     self.assertEqual(outdata.ctypes.data, indata.ctypes.data)
     self.assertEqual(buffer.unsafe_buffer_pointer(), indata.ctypes.data)
+
+
+class IpuPjrtClientExecutableTest(parameterized.TestCase):
+
+  @classmethod
+  def setUpClass(cls):
+    # IPU model with 1 device.
+    ipu_options = IpuPjRtOptions(
+        use_ipu_model=True, ipu_model_num_tiles=16, ipu_model_version="ipu2"
+    )
+    cls.backend = get_ipu_client(True, ipu_options)
+
+  def testIpuPjRtclient__executable__successful_compilation(self):
+    c = xla_client.XlaBuilder(self.id())
+    arg0 = np.array([10, 15, -2, 7], dtype=np.float32)
+    p0 = ops.Parameter(c, 0, xla_client.shape_from_pyval(arg0))
+    ops.Neg(p0)
+    executable = self.backend.compile(c.build())
+    self.assertIsInstance(executable, xla_extension.Executable)
+    self.assertIsNone(executable.fingerprint)
+    self.assertEqual(executable.client.platform, "ipu")
 
 
 if __name__ == "__main__":

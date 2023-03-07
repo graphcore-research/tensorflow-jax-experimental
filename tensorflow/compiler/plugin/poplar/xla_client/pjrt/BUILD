@@ -14,6 +14,7 @@ poplar_cc_library(
         "ipu_pjrt_buffer.cc",
         "ipu_pjrt_client.cc",
         "ipu_pjrt_device.cc",
+        "ipu_pjrt_executable.cc",
     ],
     hdrs = [
         "ipu_device_mesh.h",
@@ -21,6 +22,7 @@ poplar_cc_library(
         "ipu_pjrt_buffer.h",
         "ipu_pjrt_client.h",
         "ipu_pjrt_device.h",
+        "ipu_pjrt_executable.h",
     ],
     deps = [
         "//tensorflow/core/platform:logging",

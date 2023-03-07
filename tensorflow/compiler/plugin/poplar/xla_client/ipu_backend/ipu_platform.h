@@ -52,6 +52,11 @@ class IpuPlatform : public PoplarPlatform {
   StatusOr<std::unique_ptr<se::DeviceDescription>> DescriptionForDevice(
       int ordinal) const override;
 
+  /**
+   * @brief IPU device count: for JAX PjRt client, count all Poplar devices.
+   */
+  int VisibleDeviceCount() const;
+
  private:
   // This platform's name.
   std::string name_;

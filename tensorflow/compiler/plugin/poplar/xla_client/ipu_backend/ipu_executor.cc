@@ -202,5 +202,17 @@ void IpuExecutor::LaunchOutfeedThreads(
   return;
 }
 
+Status IpuExecutor::AttachDevice() {
+  const bool r = ipu_.AttachDevice();
+  if (r) {
+    return Status::OK();
+  }
+  return ResourceExhausted("IPU Poplar device could not be attached.");
+}
+Status IpuExecutor::DetachDevice() {
+  ipu_.DetachDevice();
+  return Status::OK();
+}
+
 }  // namespace poplarplugin
 }  // namespace xla
