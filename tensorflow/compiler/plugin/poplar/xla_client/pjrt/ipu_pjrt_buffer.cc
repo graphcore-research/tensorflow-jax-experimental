@@ -14,6 +14,8 @@ limitations under the License.
 ==============================================================================*/
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_buffer.h"
 
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_client.h"
+
 namespace xla {
 namespace poplarplugin {
 
@@ -124,13 +126,59 @@ bool IpuPjRtBuffer::IsOnCpu() const {
   return m_location == IpuPjRtBufferLocation::HOST;
 }
 
-std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::createIpuBufferOnHost(
+std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBufferOnHost(
     std::unique_ptr<PjRtBuffer> cpu_buffer, PjRtDevice* device) {
   std::unique_ptr<IpuPjRtBuffer> buffer = std::make_unique<IpuPjRtBuffer>();
   buffer->m_location = IpuPjRtBufferLocation::HOST;
   buffer->m_device = device;
   buffer->m_buffer = std::move(cpu_buffer);
   return buffer;
+}
+
+std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBufferOnHost(
+    std::unique_ptr<TfrtCpuBuffer> cpu_buffer, PjRtDevice* device) {
+  // TODO: refactor to use TfrtCpuBuffer pointer internally.
+  return CreateIpuBufferOnHost(
+      std::unique_ptr<PjRtBuffer>{cpu_buffer.release()}, device);
+}
+
+std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBufferOnHost(
+    const Shape& shape,
+    std::shared_ptr<TrackedTfrtCpuDeviceBuffer> tracked_host_buffer,
+    PjRtDevice* device) {
+  // CPU client & device.
+  auto ipu_client = tensorflow::down_cast<IpuPjRtClient*>(device->client());
+  TfrtCpuClient* cpu_client = ipu_client->cpu_client();
+  TfrtCpuDevice* cpu_device = ipu_client->cpu_device();
+  // CPU HOST buffer.
+  auto host_buffer = std::make_unique<TfrtCpuBuffer>(
+      shape, std::move(tracked_host_buffer), cpu_client, cpu_device);
+  // IPU buffer, wrapping the host one.
+  return CreateIpuBufferOnHost(std::move(host_buffer), device);
+}
+
+StatusOr<TfrtCpuBuffer*> IpuPjRtBuffer::GetHostBuffer() {
+  if (m_location != IpuPjRtBufferLocation::HOST) {
+    return InvalidArgument(
+        "Can not extract host buffer from IPU buffer: location is not HOST.");
+  }
+  return tensorflow::down_cast<TfrtCpuBuffer*>(m_buffer.get());
+}
+
+StatusOr<TfrtCpuBuffer::ScopedHold> IpuPjRtBuffer::GetHostBufferWithHold(
+    TfrtCpuBuffer::ScopedHold::Type type) {
+  TF_ASSIGN_OR_RETURN(TfrtCpuBuffer * buffer, this->GetHostBuffer());
+  return buffer->GetBufferWithHold(type);
+}
+
+StatusOr<std::shared_ptr<MaybeOwningCpuMemory>> CreateRawHostBuffer(
+    const Shape& shape) {
+  if (!shape.IsArray()) {
+    return InvalidArgument(
+        "Only supporting XLA array shape to create a raw host buffer.");
+  }
+  const auto size = ShapeUtil::ByteSizeOf(shape);
+  return MaybeOwningCpuMemory::AllocateShared(size);
 }
 
 }  // namespace poplarplugin

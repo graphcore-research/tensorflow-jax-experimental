@@ -73,9 +73,53 @@ class IpuPjrtDeviceTest(parameterized.TestCase):
     mesh = manager.find([0, 1])
     self.assertEqual(manager.type, IpuTargetType.IPU)
     self.assertEqual(mesh.info.ipu_ids, [0, 1])
+    self.assertIn(0, mesh)
+    self.assertNotIn(2, mesh)
     # No mesh with [0, 2]
     with self.assertRaises(IndexError):
       manager.find([0, 2])
+    # Single IPU mesh
+    mesh = manager.find(1)
+    self.assertEqual(manager.type, IpuTargetType.IPU)
+    self.assertEqual(mesh.info.ipu_ids, [1])
+    self.assertIn(1, mesh)
+    # From XLA device_assignment
+    device_assignment = xla_client.DeviceAssignment.create([[1], [0]])
+    mesh = manager.find(device_assignment)
+    self.assertEqual(manager.type, IpuTargetType.IPU)
+    self.assertEqual(mesh.info.ipu_ids, [0, 1])
+
+  @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
+  def testIpuDeviceMeshManager__IpuDeviceMesh__Overlaps(self):
+    manager = IpuDeviceMeshManager.create_ipu_manager()
+    if manager.count(1) < 4:
+      raise unittest.SkipTest("Not enough IPUs to run `overlaps` unit test.")
+
+    mesh = manager.find([0, 1])
+    self.assertTrue(mesh.overlaps(mesh))
+    self.assertTrue(mesh.overlaps(manager.find([0, 1, 2, 3])))
+    self.assertFalse(mesh.overlaps(manager.find([2, 3])))
+    self.assertTrue(mesh.overlaps(manager.find(0)))
+
+  @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
+  def testIpuDeviceMeshManager__IpuDeviceMesh__OverlappingMeshIds(self):
+    manager = IpuDeviceMeshManager.create_ipu_manager()
+    if manager.count(1) < 4:
+      raise unittest.SkipTest("Not enough IPUs to run `overlaps` unit test.")
+
+    meshes = manager.meshes
+    # Single IPU overlap?
+    self.assertEqual(
+        manager.overlapping_mesh_ids(0), [m.id for m in meshes[1:] if 0 in m]
+    )
+    # Multi IPUs overlap?
+    self.assertEqual(
+        manager.overlapping_mesh_ids(meshes[-1].id), [m.id for m in meshes[:-1]]
+    )
+    # Last mesh should overlap with everyone else!
+    last_mesh_id = meshes[-1].id
+    for m in meshes[:-1]:
+      self.assertIn(last_mesh_id, manager.overlapping_mesh_ids(m.id))
 
   @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
   def testIpuDeviceMeshManager__create_ipu_device_mesh_manager__ipu_hardware(self):
@@ -104,8 +148,7 @@ class IpuPjrtDeviceTest(parameterized.TestCase):
 
   @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
   def testIpuDeviceMeshManager__default_mesh__multi_ipus_hardware(self):
-    ipu_options = IpuPjRtOptions(use_ipu_model=False)
-    ipu_manager = create_ipu_device_mesh_manager(ipu_options)
+    ipu_manager = create_ipu_device_mesh_manager(IpuPjRtOptions(use_ipu_model=False))
     if len(ipu_manager) <= 3:
       raise unittest.SkipTest("Not enough IPUs to run `default_mesh` unit test.")
 
@@ -131,12 +174,73 @@ class IpuPjrtDeviceTest(parameterized.TestCase):
 
   @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
   def testIpuDeviceMeshManager__from_mesh_id_to_index__proper_result(self):
-    ipu_options = IpuPjRtOptions(use_ipu_model=False)
-    ipu_manager = create_ipu_device_mesh_manager(ipu_options)
+    ipu_manager = create_ipu_device_mesh_manager(IpuPjRtOptions(use_ipu_model=False))
     # No masking of devices => two list should coincide.
     ids = [m.id for m in ipu_manager]
     indexes = [ipu_manager.from_mesh_id_to_index(v) for v in ids]
     self.assertEqual(indexes, ids)
+
+  @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
+  def testIpuDeviceMeshManager__count__ipu_hardware_different_sizes(self):
+    ipu_manager = create_ipu_device_mesh_manager(IpuPjRtOptions(use_ipu_model=False))
+    # Initial count for single IPU mesh.
+    size, count = 1, ipu_manager.count(1)
+    while (ipu_manager.count(size * 2)):
+      # Number of mesh of size 2x should be half.
+      self.assertEqual(ipu_manager.count(size * 2), count // 2)
+      size, count = 2 * size, ipu_manager.count(2 * size)
+
+  @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
+  def testIpuDeviceMeshManager__attach__no_overlapping_logic(self):
+    manager = IpuDeviceMeshManager.create_ipu_manager()
+    if manager.count(1) < 4:
+      raise unittest.SkipTest("Not enough IPUs to run `attach` unit test.")
+
+    single_ipus = manager.count(1)
+    # Should be able to attach all single IPU devices.
+    for id in range(single_ipus):
+      self.assertTrue(manager.attach(id, force_detach_overlapping=False))
+      self.assertTrue(manager.is_attached(id))
+    # Fail to attach all multi-ipus meshes.
+    for id in range(single_ipus, len(manager)):
+      self.assertFalse(manager.attach(id, force_detach_overlapping=False))
+
+    manager.detach_all()
+    # Should be able to attach last one (i.e. all devices mesh).
+    self.assertTrue(manager.attach(manager.meshes[-1].id))
+    self.assertTrue(manager.is_attached(manager.meshes[-1].id))
+    # Fail to attach any other IPU mesh!
+    for id in range(0, len(manager) - 1):
+      self.assertFalse(manager.attach(id, force_detach_overlapping=False))
+
+  @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
+  def testIpuDeviceMeshManager__attach__overlapping_logic(self):
+    manager = IpuDeviceMeshManager.create_ipu_manager()
+    if manager.count(1) < 4:
+      raise unittest.SkipTest("Not enough IPUs to run `attach` unit test.")
+
+    # Should be able to attach all IPU meshes.
+    for id in range(len(manager)):
+      self.assertTrue(manager.attach(id, force_detach_overlapping=True))
+      self.assertTrue(manager.is_attached(id))
+    # None attached, except last one.
+    for id in range(len(manager) - 1):
+      self.assertFalse(manager.is_attached(id))
+    manager.detach_all()
+    # Non-trivial overlapping config.
+    self.assertTrue(manager.attach(0))
+    self.assertTrue(manager.attach(1))
+    self.assertTrue(manager.attach(2))
+    self.assertTrue(manager.attach(3))
+    self.assertTrue(
+        manager.attach(manager.find([2, 3]).id, force_detach_overlapping=True)
+    )
+    # Check IPU meshes as expected?
+    self.assertTrue(manager.is_attached(0))
+    self.assertTrue(manager.is_attached(1))
+    self.assertTrue(manager.is_attached(manager.find([2, 3]).id))
+    self.assertFalse(manager.is_attached(2))
+    self.assertFalse(manager.is_attached(3))
 
 
 if __name__ == "__main__":

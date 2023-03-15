@@ -37,6 +37,24 @@ namespace poplarplugin {
 constexpr char kIpuName[] = "ipu";
 static const char kIpuPlatformName[] = "ipu";
 
+IpuPjRtClientState IpuPjRtClientState::Initialize(
+    int num_ipus, const IpuDeviceMeshManager& ipu_mesh_manager) {
+  return IpuPjRtClientState();
+}
+
+IpuPjRtClientState IpuPjRtClientState::Update(
+    const IpuPjRtExecutableRunInfo& run_info,
+    const IpuDeviceMeshManager& ipu_mesh_manager) const {
+  return *this;
+}
+
+bool IpuPjRtClientState::IsActiveMesh(int mesh_id) const {
+  auto it =
+      std::find_if(m_active_meshes.begin(), m_active_meshes.end(),
+                   [mesh_id](const auto& m) { return m.mesh_id == mesh_id; });
+  return it != m_active_meshes.end();
+}
+
 /**
  * @brief Build IPU SE options to pass to IPU XLA stream executor backend.
  *
@@ -339,6 +357,11 @@ StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
   // Cast back to SE executable.
   std::unique_ptr<PjRtStreamExecutorExecutable> pjrt_se_executable(
       static_cast<PjRtStreamExecutorExecutable*>(pjrt_executable.release()));
+  // Only supporting single executable for now.
+  CHECK_EQ(pjrt_se_executable->executables().size(), 1);
+  // Perform a couple of checks on the underlying Poplar executable.
+  TF_RETURN_IF_ERROR(CheckPoplarExecutableValid(
+      GetPoplarExecutable(pjrt_se_executable.get())));
   // Build IPU PjRt executable, wrappin the later.
   return std::unique_ptr<PjRtExecutable>(
       std::make_unique<IpuPjRtExecutable>(std::move(pjrt_se_executable), this));
@@ -389,7 +412,7 @@ StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtClient::BufferFromHostBuffer(
                       m_cpu_client->BufferFromHostBuffer(
                           data, type, dims, byte_strides, host_buffer_semantics,
                           std::move(on_done_with_host_buffer), nullptr));
-  return IpuPjRtBuffer::createIpuBufferOnHost(std::move(cpu_buffer), device);
+  return IpuPjRtBuffer::CreateIpuBufferOnHost(std::move(cpu_buffer), device);
 }
 StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtClient::BufferFromHostLiteral(
     const LiteralSlice& literal, PjRtDevice* device) {

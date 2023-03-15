@@ -168,11 +168,30 @@ class IpuPjRtBuffer : public PjRtBuffer {
   // Whether this buffer is on CPU and thus allows for certain optimizations.
   virtual bool IsOnCpu() const;
 
-  /**
-   * @brief Build an IPU on host buffer, from an CPU buffer.
-   */
-  static std::unique_ptr<PjRtBuffer> createIpuBufferOnHost(
+  // IPU specific API
+  // IPU specific API
+  // IPU specific API
+
+  /** Build an IPU host buffer, from a PjRt CPU buffer. */
+  static std::unique_ptr<PjRtBuffer> CreateIpuBufferOnHost(
       std::unique_ptr<PjRtBuffer> cpu_buffer, PjRtDevice* device);
+  static std::unique_ptr<PjRtBuffer> CreateIpuBufferOnHost(
+      std::unique_ptr<TfrtCpuBuffer> cpu_buffer, PjRtDevice* device);
+
+  /** Build an IPU host buffer, from a tracked CPU buffer. */
+  static std::unique_ptr<PjRtBuffer> CreateIpuBufferOnHost(
+      const Shape& shape,
+      std::shared_ptr<TrackedTfrtCpuDeviceBuffer> tracked_host_buffer,
+      PjRtDevice* device);
+
+  /** Get the IPU buffer location. */
+  IpuPjRtBufferLocation location() const noexcept { return m_location; }
+
+  /** Get the underlying host buffer, when IPU location is host. */
+  StatusOr<TfrtCpuBuffer*> GetHostBuffer();
+  /** Get a hold on the host buffer, when existing. */
+  StatusOr<TfrtCpuBuffer::ScopedHold> GetHostBufferWithHold(
+      TfrtCpuBuffer::ScopedHold::Type type);
 
  private:
   /** Location of the buffer. */
@@ -183,6 +202,13 @@ class IpuPjRtBuffer : public PjRtBuffer {
   /** Underlying buffer (when there is one) */
   std::unique_ptr<PjRtBuffer> m_buffer{nullptr};
 };
+
+// Helper factory methods.
+/**
+ * @brief Create a raw HOST memory buffer, based on an array shape.
+ */
+StatusOr<std::shared_ptr<MaybeOwningCpuMemory>> CreateRawHostBuffer(
+    const Shape& shape);
 
 }  // namespace poplarplugin
 }  // namespace xla

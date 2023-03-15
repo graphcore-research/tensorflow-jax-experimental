@@ -14,12 +14,36 @@ limitations under the License.
 ==============================================================================*/
 #pragma once
 
+#include <poplar/Device.hpp>
+
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
 #include "tensorflow/compiler/xla/pjrt/tfrt_cpu_pjrt_client.h"
 
 namespace xla {
 namespace poplarplugin {
+
+class PoplarExecutable;
+class IpuPjRtClient;
+
+/** Get the underlying Poplar executable from an IPU PjRt SE executable. */
+PoplarExecutable* GetPoplarExecutable(PjRtStreamExecutorExecutable* executable);
+
+/** Check a Poplar executable is compatible/valid with IPU PjRt backend. */
+Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable);
+
+/**
+ * @brief Representing a single run of an IPU PjRt executable.
+ */
+struct IpuPjRtExecutableRunInfo {
+  /** IPU mesh id on which is executed the program. */
+  int mesh_id = 0;
+  /** Executable id, assigned by the client. */
+  int executable_id = 0;
+  /** Run id, assigned by the client. */
+  int run_id = 0;
+  // TODO: status future.
+};
 
 /**
  * @brief IPU PJRT executable. This class is wrapping a stream-executor
@@ -29,7 +53,7 @@ class IpuPjRtExecutable : public PjRtExecutable {
  public:
   explicit IpuPjRtExecutable(
       std::unique_ptr<PjRtStreamExecutorExecutable> se_executable,
-      PjRtClient* client);
+      IpuPjRtClient* client);
   virtual ~IpuPjRtExecutable() = default;
 
   virtual PjRtClient* client() const;
@@ -116,11 +140,19 @@ class IpuPjRtExecutable : public PjRtExecutable {
   virtual bool IsDeleted();
 
  private:
+  friend class IpuPjRtClient;
+
+  /** Get associated Poplar (mesh) device. */
+  const poplar::Device& GetPoplarDevice() const;
+
   /** Underlying stream executor executable. */
   std::unique_ptr<PjRtStreamExecutorExecutable> m_se_executable;
-
   /** PjRt client which compiled the executable. */
-  PjRtClient* m_client;
+  IpuPjRtClient* m_client;
+  /** IPU device assignment (addressable devices). */
+  std::vector<PjRtDevice*> m_devices;
+  /** IPU mesh device id. */
+  int m_device_mesh_id = -1;
 };
 
 }  // namespace poplarplugin

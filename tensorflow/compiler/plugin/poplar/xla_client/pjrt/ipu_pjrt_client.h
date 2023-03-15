@@ -15,6 +15,7 @@ limitations under the License.
 #pragma once
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_device_mesh.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_device.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_executable.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
 #include "tensorflow/compiler/xla/pjrt/tfrt_cpu_pjrt_client.h"
@@ -45,6 +46,56 @@ struct IpuPjRtOptions {
   /* If true (default), prefetching of data for data streams on the host will be
     overlapped with execution on the IPU.*/
   bool prefetch_data_streams = true;
+};
+
+/**
+ * @brief IPU (active) mesh state.
+ *
+ * This data structure is describing the state of a mesh,
+ * with id, executable loaded and latest run id.
+ */
+struct IpuPjRtMeshState {
+ public:
+  /** IPU mesh id */
+  int mesh_id;
+  /** Executable loaded (none by default). */
+  int executable_id = 0;
+  /** Latest run id (none by default). */
+  int run_id = 0;
+  /** Latest run status (PjRt future). */
+  std::optional<PjRtFuture<Status>> run_status = std::nullopt;
+};
+
+/**
+ * @brief IPU PjRt client state: summary of current state of all IPUs.
+ */
+class IpuPjRtClientState {
+ public:
+  IpuPjRtClientState() = default;
+
+  /**
+   * @brief Create initial state, with N individual IPUs (extracted from the IPU
+   * mesh manager).
+   */
+  static IpuPjRtClientState Initialize(
+      int num_ipus, const IpuDeviceMeshManager& ipu_mesh_manager);
+  /**
+   * @brief Update a state with executable run info, creating a new instance.
+   * Active meshes in the state needs to run on a different mesh configuration.
+   */
+  IpuPjRtClientState Update(const IpuPjRtExecutableRunInfo& run_info,
+                            const IpuDeviceMeshManager& ipu_mesh_manager) const;
+  /** Is a mesh active? */
+  bool IsActiveMesh(int mesh_id) const;
+
+  /** Get client state active meshes. */
+  const std::vector<IpuPjRtMeshState>& active_meshes() const {
+    return m_active_meshes;
+  }
+
+ private:
+  /** Active/attached IPU meshes. */
+  std::vector<IpuPjRtMeshState> m_active_meshes;
 };
 
 /**
@@ -217,8 +268,17 @@ class IpuPjRtClient : public PjRtClient {
   // IPU PjRt client specific interface.
   // IPU PjRt client specific interface.
 
-  // IPU mesh manager
+  /** Get IPU mesh manager. */
   const IpuDeviceMeshManager& ipu_mesh_manager() const noexcept;
+  /** Get underlying TFRT CPU client. */
+  TfrtCpuClient* cpu_client() const noexcept {
+    return tensorflow::down_cast<TfrtCpuClient*>(m_cpu_client.get());
+  }
+  /** Get underlying TFRT CPU device. */
+  TfrtCpuDevice* cpu_device() const noexcept {
+    return tensorflow::down_cast<TfrtCpuDevice*>(
+        this->cpu_client()->addressable_devices()[0]);
+  }
 
  private:
   bool m_asynchronous;

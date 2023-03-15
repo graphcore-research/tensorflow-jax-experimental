@@ -54,6 +54,22 @@ std::string IpuDeviceMeshInfo::version() const {
   return m_target.getTargetArchString();
 }
 
+bool IpuDeviceMeshInfo::isIn(IdType id) const noexcept {
+  return std::find(m_ipu_ids.begin(), m_ipu_ids.end(), id) != m_ipu_ids.end();
+}
+
+bool IpuDeviceMeshInfo::overlaps(
+    const IpuDeviceMeshInfo& mesh_info) const noexcept {
+  for (const auto id : mesh_info.ipuIds()) {
+    // Common IPU between the two meshes?
+    if (this->isIn(id)) {
+      return true;
+    }
+  }
+  // None found!
+  return false;
+}
+
 IpuDeviceMesh::IpuDeviceMesh(
     poplar::Device device, const std::vector<IdType>& child_ipu_ids,
     const std::optional<poplar::IPUModel>& ipu_model_desc)
@@ -61,8 +77,39 @@ IpuDeviceMesh::IpuDeviceMesh(
                   ipu_model_desc},
       m_device{std::move(device)} {}
 
+bool IpuDeviceMesh::isAttached() const noexcept {
+  return m_device.isAttached();
+}
+
 IpuDeviceMeshManager::IpuDeviceMeshManager(std::vector<IpuDeviceMesh> meshes)
-    : m_meshes{std::move(meshes)} {}
+    : m_meshes{std::move(meshes)} {
+  // TODO: sort meshes?
+  // Create mesh id to index reverse map.
+  for (std::size_t idx = 0; idx < m_meshes.size(); ++idx) {
+    const auto& m = m_meshes[idx];
+    m_mesh_it_to_index_map[m.id()] = idx;
+  }
+  // Cache of overlapping meshes.
+  for (const auto& m0 : m_meshes) {
+    std::vector<IdType> overlap_ids;
+    // Find overlapping meshes.
+    for (const auto& m1 : m_meshes) {
+      if (m0.id() != m1.id() && m0.overlaps(m1)) {
+        overlap_ids.push_back(m1.id());
+      }
+    }
+    m_mesh_overlap_map[m0.id()] = std::move(overlap_ids);
+  }
+}
+
+IpuDeviceMeshManager::IpuDeviceMeshManager(
+    IpuDeviceMeshManager&& rhs) noexcept {
+  // Make sure there is no on-going device management.
+  std::scoped_lock l(rhs.m_device_mutex);
+  m_meshes = std::move(rhs.m_meshes);
+  m_mesh_it_to_index_map = std::move(rhs.m_mesh_it_to_index_map);
+  m_mesh_overlap_map = std::move(rhs.m_mesh_overlap_map);
+}
 
 IpuDeviceMeshManager IpuDeviceMeshManager::createCpuManager() {
   // not yet supported.
@@ -143,6 +190,19 @@ const IpuDeviceMesh& IpuDeviceMeshManager::find(std::vector<IdType> ids) const {
   return *it;
 }
 
+const IpuDeviceMesh& IpuDeviceMeshManager::find(
+    const DeviceAssignment& device_assignment) const {
+  std::vector<IdType> device_ids(device_assignment.begin(),
+                                 device_assignment.end());
+  return this->find(std::move(device_ids));
+}
+
+std::size_t IpuDeviceMeshManager::count(std::size_t mesh_size) const noexcept {
+  return std::count_if(
+      m_meshes.begin(), m_meshes.end(),
+      [mesh_size](const auto& m) { return m.size() == mesh_size; });
+}
+
 const IpuDeviceMesh& IpuDeviceMeshManager::defaultMesh(
     std::size_t num_ipus) const {
   CHECK_GT(num_ipus, 0);
@@ -157,14 +217,50 @@ const IpuDeviceMesh& IpuDeviceMeshManager::defaultMesh(
 }
 
 std::size_t IpuDeviceMeshManager::fromMeshIdToIndex(IdType mesh_id) const {
-  // TODO: cache the mapping.
-  for (std::size_t idx = 0; idx < m_meshes.size(); ++idx) {
-    if (m_meshes[idx].id() == mesh_id) {
-      return idx;
+  auto it = m_mesh_it_to_index_map.find(mesh_id);
+  if (it == m_mesh_it_to_index_map.end()) {
+    throw std::out_of_range(
+        absl::StrFormat("Not IPU device mesh found with ID: %i", mesh_id));
+  }
+  return it->second;
+}
+
+const std::vector<IdType>& IpuDeviceMeshManager::overlappingMeshIds(
+    IdType mesh_id) const {
+  return m_mesh_overlap_map.at(mesh_id);
+}
+
+bool IpuDeviceMeshManager::attach(IdType mesh_id,
+                                  bool force_detach_overlapping) {
+  std::scoped_lock l(m_device_mutex);
+  // Already attached => by-pass all checks.
+  if (this->find(mesh_id).isAttached()) {
+    return true;
+  }
+  // Detach all overlapping IPU meshes.
+  if (force_detach_overlapping) {
+    const auto& overlapping_mesh_ids = this->overlappingMeshIds(mesh_id);
+    // TODO: benchmark performance of detaching? Use boolean cache?
+    for (const auto overlap_id : overlapping_mesh_ids) {
+      this->find(overlap_id).device().detach();
     }
   }
-  throw std::out_of_range(
-      absl::StrFormat("Not IPU device mesh found with ID: %i", mesh_id));
+  // Try finally attaching the device!
+  return this->find(mesh_id).device().attach();
+}
+bool IpuDeviceMeshManager::isAttached(IdType mesh_id) const {
+  std::scoped_lock l(m_device_mutex);
+  return this->find(mesh_id).isAttached();
+}
+void IpuDeviceMeshManager::detach(IdType mesh_id) {
+  std::scoped_lock l(m_device_mutex);
+  return this->find(mesh_id).device().detach();
+}
+void IpuDeviceMeshManager::detachAll() {
+  std::scoped_lock l(m_device_mutex);
+  for (const auto& m : m_meshes) {
+    m.device().detach();
+  }
 }
 
 }  // namespace poplarplugin
