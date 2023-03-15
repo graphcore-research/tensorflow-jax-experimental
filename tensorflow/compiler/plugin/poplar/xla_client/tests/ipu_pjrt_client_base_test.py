@@ -204,6 +204,21 @@ class IpuPjrtClientExecutableTest(parameterized.TestCase):
     self.assertEqual(len(outputs), 1)
     np.testing.assert_equal(outputs[0], -arg0)
 
+  def testIpuPjRtclient__executable__binary_op__executing(self):
+    c = xla_client.XlaBuilder(self.id())
+    arg0 = np.array([10, 15, -2, 7], dtype=np.float32)
+    arg1 = np.array([1, 3, -7, 9], dtype=np.float32)
+    p0 = ops.Parameter(c, 0, xla_client.shape_from_pyval(arg0))
+    p1 = ops.Parameter(c, 1, xla_client.shape_from_pyval(arg1))
+    ops.Mul(p0, p1)
+    executable = self.backend.compile(c.build())
+
+    outputs = xla_client.execute_with_python_values(
+        executable, [arg0, arg1], backend=self.backend
+    )
+    self.assertEqual(len(outputs), 1)
+    np.testing.assert_equal(outputs[0], arg0 * arg1)
+
 
 if __name__ == "__main__":
   absltest.main()

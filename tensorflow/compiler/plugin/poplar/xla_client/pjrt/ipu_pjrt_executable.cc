@@ -156,6 +156,8 @@ IpuPjRtExecutable::Execute(
   poplar::Engine* engine = poplar_executable->Engine();
   const auto io_aliasing_map = poplar_executable->GetInputOutputAliasingMap();
 
+  const std::size_t num_inputs = io_aliasing_map.GetEntryInputInfos().size();
+  const std::size_t num_outputs = io_aliasing_map.GetEntryOutputInfos().size();
   // A couple of early checks on arguments!
   const std::size_t num_addressable_devices = m_devices.size();
   if (argument_handles.size() != num_addressable_devices) {
@@ -166,11 +168,8 @@ IpuPjRtExecutable::Execute(
         num_partitions());
   }
   for (const auto& arguments_device : argument_handles) {
-    CHECK_EQ(arguments_device.size(),
-             io_aliasing_map.GetEntryInputInfos().size());
+    CHECK_EQ(arguments_device.size(), num_inputs);
   }
-  const std::size_t num_inputs = io_aliasing_map.GetEntryInputInfos().size();
-  const std::size_t num_outputs = io_aliasing_map.GetEntryOutputInfos().size();
   LOG(INFO) << "Executing IPU computation " << name()
             << "; num_replicas=" << num_replicas()
             << " num_partitions=" << num_partitions()
@@ -185,10 +184,10 @@ IpuPjRtExecutable::Execute(
   // Highly inspired by TFRT CPU client/executable handling of buffers.
   absl::InlinedVector<TfrtCpuBuffer::ScopedHold, 4> host_input_buffers;
   std::vector<tfrt::RCReference<tfrt::AsyncValue>> host_input_deps;
-  host_input_buffers.reserve(argument_handles.size());
-  host_input_deps.reserve(argument_handles.size());
+  host_input_buffers.reserve(num_inputs);
+  host_input_deps.reserve(num_inputs);
   // Extract host input buffers (and input events).
-  for (int i = 0; i < argument_handles.size(); ++i) {
+  for (int i = 0; i < num_inputs; ++i) {
     auto* ipu_buffer =
         tensorflow::down_cast<IpuPjRtBuffer*>(argument_handles[replica][i]);
     // Not supporting buffer donation for now.
@@ -233,6 +232,8 @@ IpuPjRtExecutable::Execute(
   engine->load(device_mesh.device());
   // Connect all streams. TODO: use connect stream to callback.
   const int64_t custom_seed = 42;
+
+  tfrt::Await(host_input_deps);
 
   // TODO: remove seed stream from executable.
   engine->connectStream("__seed_stream", (void*)(&custom_seed));
