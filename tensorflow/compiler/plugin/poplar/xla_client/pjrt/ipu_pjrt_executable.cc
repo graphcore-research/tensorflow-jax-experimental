@@ -75,9 +75,12 @@ Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable) {
 }
 
 IpuPjRtExecutable::IpuPjRtExecutable(
+    int64_t executable_id,
     std::unique_ptr<PjRtStreamExecutorExecutable> se_executable,
     IpuPjRtClient* client)
-    : m_se_executable{std::move(se_executable)}, m_client{client} {
+    : m_executable_id{executable_id},
+      m_se_executable{std::move(se_executable)},
+      m_client{client} {
   const auto& all_devices = client->addressable_devices();
   std::vector<int> device_ids(device_assignment().begin(),
                               device_assignment().end());
@@ -226,13 +229,27 @@ IpuPjRtExecutable::Execute(
   // Synchronously call generated function.
   execute_event = GetOrCreateReadyEvent(host_context);
 
-  const auto& device_mesh = m_client->ipu_mesh_manager().find(m_device_mesh_id);
-  LOG(INFO) << "Load IPU poplar engine " << name()
-            << " on Poplar device with ID: " << m_device_mesh_id;
-  engine->load(device_mesh.device());
+  // (Blocking) update of client state.
+  // Use as coordination mechanism when required to load or reorganize IPUs.
+  const auto [run_info, prev_client_state, new_client_state] =
+      m_client->UpdateClientState(m_device_mesh_id, m_executable_id);
+
+  // Should load on device => was mesh id & executable id was part of the
+  // previous state.
+  const auto prev_mesh = prev_client_state.FindByMeshId(m_device_mesh_id);
+  const bool load_poplar_engine =
+      (prev_mesh == nullptr) || (prev_mesh->executable_id != m_executable_id);
+  if (load_poplar_engine) {
+    const auto& device_mesh =
+        m_client->ipu_mesh_manager().find(m_device_mesh_id);
+    LOG(INFO) << "Load IPU poplar engine " << name()
+              << ", executable id: " << run_info.executable_id
+              << ", on Poplar device with ID: " << m_device_mesh_id;
+    engine->load(device_mesh.device());
+  }
+
   // Connect all streams. TODO: use connect stream to callback.
   const int64_t custom_seed = 42;
-
   tfrt::Await(host_input_deps);
 
   // TODO: remove seed stream from executable.
@@ -252,7 +269,10 @@ IpuPjRtExecutable::Execute(
   }
 
   // Synchronous call => blocking thread!
-  LOG(INFO) << "Run IPU poplar engine " << name();
+  LOG(INFO) << "Run IPU poplar engine " << name()
+            << "; executable id: " << run_info.executable_id
+            << "; run id: " << run_info.run_id;
+
   engine->run(PoplarProgramType::MAIN_SEQUENCE);
 
   // Create wrapping PjRt output buffers.

@@ -157,14 +157,22 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
 
   py::class_<IpuPjRtClientState>(m, "IpuPjRtClientState")
       .def(py::init<>())
-      .def_static("initialize", &IpuPjRtClientState::Initialize)
-      .def("update", &IpuPjRtClientState::Update)
+      .def("__len__", &IpuPjRtClientState::size)
+      .def_static("initialize", &IpuPjRtClientState::Initialize,
+                  py::arg("mesh_manager"))
+      .def("update", &IpuPjRtClientState::Update, py::arg("run_info"),
+           py::arg("mesh_manager"))
+      .def("is_active_mesh", &IpuPjRtClientState::IsActiveMesh,
+           py::arg("mesh_id"))
       .def_property_readonly("active_meshes",
                              &IpuPjRtClientState::active_meshes);
 
   py::class_<IpuPjRtDevice, PjRtDevice, ClientAndPtr<IpuPjRtDevice>>(
       m, "IpuPjRtDevice")
       .def("__repr__", &IpuPjRtDevice::ToString)
+      .def_property_readonly("ipu_mesh_manager",
+                             &IpuPjRtDevice::ipu_mesh_manager,
+                             py::return_value_policy::reference_internal)
       .def_property_readonly(
           "type", [](const IpuPjRtDevice& d) { return d.device_info().type(); })
       .def_property_readonly(

@@ -14,6 +14,8 @@ limitations under the License.
 ==============================================================================*/
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_device.h"
 
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_client.h"
+
 namespace xla {
 namespace poplarplugin {
 
@@ -99,6 +101,11 @@ IpuPjRtDevice::Attributes() const {
 
 const IpuDeviceMeshInfo& IpuPjRtDevice::device_info() const noexcept {
   return m_device_info;
+}
+
+const IpuDeviceMeshManager& IpuPjRtDevice::ipu_mesh_manager() const noexcept {
+  IpuPjRtClient* client = tensorflow::down_cast<IpuPjRtClient*>(m_client);
+  return client->ipu_mesh_manager();
 }
 
 }  // namespace poplarplugin

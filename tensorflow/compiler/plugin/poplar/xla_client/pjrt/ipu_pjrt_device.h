@@ -93,6 +93,9 @@ class IpuPjRtDevice : public PjRtDevice {
 
   // Returns IPU device info, with full description of underlying hardware.
   const IpuDeviceMeshInfo& device_info() const noexcept;
+  // Returns IPU device mesh manager. Useful for getting a full picture of
+  // devices.
+  const IpuDeviceMeshManager& ipu_mesh_manager() const noexcept;
 
  private:
   /** Process index. */

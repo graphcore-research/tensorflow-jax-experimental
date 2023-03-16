@@ -20,7 +20,8 @@ from tensorflow.compiler.plugin.poplar.xla_client.python import ipu_xla_client_p
 
 from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client_pybind import (
     IpuDevice, IpuPoplarTargetType, IpuDeviceMeshManager, IpuDeviceMesh, IpuPjRtDevice,
-    IpuDeviceMeshInfo, create_ipu_device_mesh_manager, IpuPjRtOptions, get_ipu_client
+    IpuDeviceMeshInfo, create_ipu_device_mesh_manager, IpuPjRtOptions, get_ipu_client,
+    IpuPjRtClientState, IpuPjRtMeshState, IpuPjRtExecutableRunInfo
 )
 
 # Backward compatible declarations.

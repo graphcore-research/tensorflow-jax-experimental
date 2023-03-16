@@ -16,6 +16,7 @@ limitations under the License.
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_device_mesh.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_device.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_executable.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/utils.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
 #include "tensorflow/compiler/xla/pjrt/tfrt_cpu_pjrt_client.h"
@@ -67,18 +68,22 @@ struct IpuPjRtMeshState {
 };
 
 /**
- * @brief IPU PjRt client state: summary of current state of all IPUs.
+ * @brief IPU PjRt client state: summary of the status of all IPUs.
+ *
+ * NOTE: as the IPU client is asynchronous, the state represents the last
+ * queued operation on the IPU, not necessarily the present state (IPUs
+ * attached, ...).
  */
 class IpuPjRtClientState {
  public:
   IpuPjRtClientState() = default;
 
   /**
-   * @brief Create initial state, with N individual IPUs (extracted from the IPU
-   * mesh manager).
+   * @brief Create initial state, with all individual IPUs (extracted from the
+   * IPU mesh manager).
    */
   static IpuPjRtClientState Initialize(
-      int num_ipus, const IpuDeviceMeshManager& ipu_mesh_manager);
+      const IpuDeviceMeshManager& ipu_mesh_manager);
   /**
    * @brief Update a state with executable run info, creating a new instance.
    * Active meshes in the state needs to run on a different mesh configuration.
@@ -88,10 +93,17 @@ class IpuPjRtClientState {
   /** Is a mesh active? */
   bool IsActiveMesh(int mesh_id) const;
 
+  /** Find an active mesh by mesh id. */
+  const IpuPjRtMeshState* FindByMeshId(int mesh_id) const noexcept;
+  /** Find an active mesh by executable id. */
+  const IpuPjRtMeshState* FindByExecutableId(int executable_id) const noexcept;
+
   /** Get client state active meshes. */
   const std::vector<IpuPjRtMeshState>& active_meshes() const {
     return m_active_meshes;
   }
+  /** Number of active meshes. */
+  std::size_t size() const noexcept { return m_active_meshes.size(); }
 
  private:
   /** Active/attached IPU meshes. */
@@ -280,6 +292,22 @@ class IpuPjRtClient : public PjRtClient {
         this->cpu_client()->addressable_devices()[0]);
   }
 
+  /** Next IPU executable run id. */
+  int64_t next_run_id() { return m_run_id_counter.increment(); }
+
+  /** Get the IPU client state. */
+
+  /**
+   * @brief Update the IPU client state with a new executable run.
+   * This function is thread-safe, blocking any other modification on the state.
+   *
+   * It returns: (run_info, previous_state, new_state).
+   *
+   * TODO: pass the PjRtFuture as well.
+   */
+  std::tuple<IpuPjRtExecutableRunInfo, IpuPjRtClientState, IpuPjRtClientState>
+  UpdateClientState(int mesh_id, int executable_id);
+
  private:
   bool m_asynchronous;
   /** Process id */
@@ -301,6 +329,16 @@ class IpuPjRtClient : public PjRtClient {
   /** Stream executor devices: all possible IPU meshes / Poplar devices.
    */
   std::vector<std::unique_ptr<PjRtStreamExecutorDevice>> m_se_mesh_devices;
+
+  /** Client state. */
+  IpuPjRtClientState m_client_state;
+  /** Client/state execute mutex. */
+  mutable std::mutex m_client_state_mutex;
+
+  /** Global executable id counter. */
+  AtomicCounter m_executable_id_counter{1};
+  /** Global run id counter. */
+  AtomicCounter m_run_id_counter{1};
 };
 
 /**

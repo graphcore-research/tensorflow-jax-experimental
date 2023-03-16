@@ -23,6 +23,7 @@ poplar_cc_library(
         "ipu_pjrt_client.h",
         "ipu_pjrt_device.h",
         "ipu_pjrt_executable.h",
+        "utils.h",
     ],
     deps = [
         "//tensorflow/core/platform:logging",

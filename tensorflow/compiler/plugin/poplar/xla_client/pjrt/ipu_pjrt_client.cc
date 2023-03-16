@@ -38,21 +38,89 @@ constexpr char kIpuName[] = "ipu";
 static const char kIpuPlatformName[] = "ipu";
 
 IpuPjRtClientState IpuPjRtClientState::Initialize(
-    int num_ipus, const IpuDeviceMeshManager& ipu_mesh_manager) {
-  return IpuPjRtClientState();
+    const IpuDeviceMeshManager& ipu_mesh_manager) {
+  auto state = IpuPjRtClientState();
+  state.m_active_meshes.clear();
+  // Add individual IPU devices initially.
+  for (const auto& m : ipu_mesh_manager.meshes()) {
+    if (m.size() == 1) {
+      // Proper IPU mesh id, no executable/run id.
+      state.m_active_meshes.push_back(IpuPjRtMeshState{m.id(), 0, 0});
+    }
+  }
+  return state;
 }
 
 IpuPjRtClientState IpuPjRtClientState::Update(
     const IpuPjRtExecutableRunInfo& run_info,
     const IpuDeviceMeshManager& ipu_mesh_manager) const {
-  return *this;
+  // Reconstruct new IPU client state.
+  IpuPjRtClientState state_updated;
+  const auto mesh_id = run_info.mesh_id;
+  const auto is_mesh_active = this->IsActiveMesh(mesh_id);
+  if (is_mesh_active) {
+    // Is the IPU mesh already in used? => simple case.
+    for (const auto& m : m_active_meshes) {
+      if (m.mesh_id == mesh_id) {
+        // Update the mesh state -> executable & run_id.
+        state_updated.m_active_meshes.push_back(IpuPjRtMeshState{
+            run_info.mesh_id, run_info.executable_id, run_info.run_id});
+      } else {
+        // Keep same IPU mesh state (i.e. same executable & run id).
+        state_updated.m_active_meshes.push_back(m);
+      }
+    }
+  } else {
+    // More complicated case => new IPU mesh, need to remove all overlapping
+    // meshes and introduce new one.
+    const auto overlapping_mesh_ids =
+        ipu_mesh_manager.overlappingMeshIds(mesh_id);
+    const auto overlapping_set_ids = std::set<IpuDeviceMeshManager::IdType>(
+        overlapping_mesh_ids.begin(), overlapping_mesh_ids.end());
+
+    for (const auto& m : m_active_meshes) {
+      if (overlapping_set_ids.find(m.mesh_id) == overlapping_set_ids.end()) {
+        // Not overlapping with new IPU mesh => keep it.
+        state_updated.m_active_meshes.push_back(m);
+      }
+    }
+    // Add the new IPU mesh in use.
+    state_updated.m_active_meshes.push_back(IpuPjRtMeshState{
+        run_info.mesh_id, run_info.executable_id, run_info.run_id});
+    // Sort by id, for consistency.
+    std::sort(
+        state_updated.m_active_meshes.begin(),
+        state_updated.m_active_meshes.end(),
+        [](const auto& m1, const auto& m2) { return m1.mesh_id < m2.mesh_id; });
+  }
+  return state_updated;
 }
 
 bool IpuPjRtClientState::IsActiveMesh(int mesh_id) const {
-  auto it =
+  return FindByMeshId(mesh_id) != nullptr;
+}
+
+const IpuPjRtMeshState* IpuPjRtClientState::FindByMeshId(
+    int mesh_id) const noexcept {
+  const auto it =
       std::find_if(m_active_meshes.begin(), m_active_meshes.end(),
                    [mesh_id](const auto& m) { return m.mesh_id == mesh_id; });
-  return it != m_active_meshes.end();
+  if (it == m_active_meshes.end()) {
+    return nullptr;
+  }
+  return &(*it);
+}
+
+const IpuPjRtMeshState* IpuPjRtClientState::FindByExecutableId(
+    int executable_id) const noexcept {
+  const auto it = std::find_if(m_active_meshes.begin(), m_active_meshes.end(),
+                               [executable_id](const auto& m) {
+                                 return m.executable_id == executable_id;
+                               });
+  if (it == m_active_meshes.end()) {
+    return nullptr;
+  }
+  return &(*it);
 }
 
 /**
@@ -265,6 +333,8 @@ IpuPjRtClient::IpuPjRtClient(bool asynchronous, int process_id,
   // IPU stream executor client, representing IPU meshes.
   m_se_mesh_client =
       MakeIpuSEMeshClient(true, m_ipu_mesh_manager, m_options).ValueOrDie();
+
+  // TODO: client state + attach single IPUs.
 }
 IpuPjRtClient::~IpuPjRtClient() {
   // Delete CPU and IPU stream executor clients.
@@ -364,7 +434,8 @@ StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
       GetPoplarExecutable(pjrt_se_executable.get())));
   // Build IPU PjRt executable, wrappin the later.
   return std::unique_ptr<PjRtExecutable>(
-      std::make_unique<IpuPjRtExecutable>(std::move(pjrt_se_executable), this));
+      std::make_unique<IpuPjRtExecutable>(m_executable_id_counter.increment(),
+                                          std::move(pjrt_se_executable), this));
 }
 StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
     mlir::ModuleOp module, CompileOptions options) {
@@ -458,6 +529,18 @@ Status IpuPjRtClient::Defragment() {
 
 const IpuDeviceMeshManager& IpuPjRtClient::ipu_mesh_manager() const noexcept {
   return m_ipu_mesh_manager;
+}
+
+std::tuple<IpuPjRtExecutableRunInfo, IpuPjRtClientState, IpuPjRtClientState>
+IpuPjRtClient::UpdateClientState(int mesh_id, int executable_id) {
+  // Make sure we can't have multiple updates in parallel.
+  std::lock_guard<std::mutex> lk(m_client_state_mutex);
+  const auto current_state = m_client_state;
+  // TODO: pass PjRtFuture as well (or generate here?)
+  const auto run_info =
+      IpuPjRtExecutableRunInfo{mesh_id, executable_id, next_run_id()};
+  m_client_state = m_client_state.Update(run_info, m_ipu_mesh_manager);
+  return std::make_tuple(run_info, current_state, m_client_state);
 }
 
 // Factory methods.

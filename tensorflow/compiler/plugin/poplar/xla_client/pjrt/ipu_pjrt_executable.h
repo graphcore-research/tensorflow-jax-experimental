@@ -51,7 +51,9 @@ struct IpuPjRtExecutableRunInfo {
  */
 class IpuPjRtExecutable : public PjRtExecutable {
  public:
+  /** Build IPU executable from stream-executor executable.  */
   explicit IpuPjRtExecutable(
+      int64_t executable_id,
       std::unique_ptr<PjRtStreamExecutorExecutable> se_executable,
       IpuPjRtClient* client);
   virtual ~IpuPjRtExecutable() = default;
@@ -139,12 +141,16 @@ class IpuPjRtExecutable : public PjRtExecutable {
   // True if on-device resources associated with the executable are freed.
   virtual bool IsDeleted();
 
+  /// IPU specific APIs.
+
  private:
   friend class IpuPjRtClient;
 
   /** Get associated Poplar (mesh) device. */
   const poplar::Device& GetPoplarDevice() const;
 
+  /** (Global/unique) executable id. */
+  int64_t m_executable_id;
   /** Underlying stream executor executable. */
   std::unique_ptr<PjRtStreamExecutorExecutable> m_se_executable;
   /** PjRt client which compiled the executable. */
