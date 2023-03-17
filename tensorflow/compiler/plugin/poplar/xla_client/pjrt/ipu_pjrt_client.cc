@@ -400,8 +400,8 @@ StatusOr<DeviceAssignment> IpuPjRtClient::GetDefaultDeviceAssignment(
   return Unimplemented("Not implemented `GetDefaultDeviceAssignment` on IPU.");
 }
 StatusOr<std::unique_ptr<HloCostAnalysis>> IpuPjRtClient::GetHloCostAnalysis() {
-  // TODO: re-direct to StreamExecutor?
-  return Unimplemented("Not implemented `GetHloCostAnalysis` on IPU.");
+  // Re-direct to StreamExecutor backend analysis.
+  return m_se_mesh_client->GetHloCostAnalysis();
 }
 
 StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(

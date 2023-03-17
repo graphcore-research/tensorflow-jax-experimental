@@ -153,11 +153,11 @@ IpuPjRtExecutable::Execute(
     const ExecuteOptions& options,
     std::optional<std::vector<PjRtFuture<Status>>>& returned_futures) {
   auto* host_context = m_client->cpu_client()->GetHostContext();
-  // Poplar executable, in/out map.
+  // Poplar executable and associated in/out mapping.
   PoplarExecutable* poplar_executable =
       GetPoplarExecutable(m_se_executable.get());
-  poplar::Engine* engine = poplar_executable->Engine();
   const auto io_aliasing_map = poplar_executable->GetInputOutputAliasingMap();
+  poplar::Engine* engine = poplar_executable->Engine();
 
   const std::size_t num_inputs = io_aliasing_map.GetEntryInputInfos().size();
   const std::size_t num_outputs = io_aliasing_map.GetEntryOutputInfos().size();
@@ -213,6 +213,9 @@ IpuPjRtExecutable::Execute(
     CHECK_EQ(host_buffer_hold->Buffers().size(), 1);
     host_input_buffers.emplace_back(std::move(host_buffer_hold));
   }
+  // Poplar engine: if null, means it should be executed on HOST directly
+  // (constant, scalar, ...). NOTE: check engine after inputs status.
+  CHECK_NOTNULL(engine);
 
   // Create returned raw HOST buffers.
   // TODO: handle tuple args and tuple results?

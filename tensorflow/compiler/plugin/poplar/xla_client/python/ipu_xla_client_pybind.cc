@@ -175,6 +175,9 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
                              py::return_value_policy::reference_internal)
       .def_property_readonly(
           "type", [](const IpuPjRtDevice& d) { return d.device_info().type(); })
+      .def_property_readonly(  // backward compatible with legacy client.
+          "target_type",
+          [](const IpuPjRtDevice& d) { return d.device_info().type(); })
       .def_property_readonly(
           "version",
           [](const IpuPjRtDevice& d) { return d.device_info().version(); })

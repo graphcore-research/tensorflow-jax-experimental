@@ -63,9 +63,9 @@ std::string IpuPjRtDevice::DebugString() const {
   return ToString();
 }
 std::string IpuPjRtDevice::ToString() const {
-  return absl::StrFormat("IpuDevice(num_tiles=%i, version=%s)",
-                         m_device_info.target().getTilesPerIPU(),
-                         m_device_info.version());
+  return absl::StrFormat(
+      "IpuDevice(id=%i, num_tiles=%i, version=%s)", m_device_info.id(),
+      m_device_info.target().getTilesPerIPU(), m_device_info.version());
 }
 
 // Returns a scoped event that the caller uses to tell the PjRtClient that

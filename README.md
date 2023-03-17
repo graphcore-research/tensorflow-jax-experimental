@@ -38,6 +38,7 @@ All the previous test targets can be run on the IPU model using the following co
 bazel test --config=monolithic --jobs=16 --verbose_failures --cache_test_results=no --test_timeout=240,360,900,3600 --test_size_filters=small,medium,large --flaky_test_attempts=1 --test_output=all --test_env='TF_POPLAR_FLAGS=--use_ipu_model --ipu_model_tiles=8 --max_compilation_threads=1 --max_infeed_threads=2' //tensorflow/compiler/plugin/poplar/xla_client/tests:all_tests
 ```
 Using IPU hardware requires an additional `test_env` mapping: `--test_env='IPUOF_VIPU_API_PARTITION_ID=xxx`.
+Additional logs can be outputted using: `--test_env='POPLAR_LOG_LEVEL=DEBUG' --test_env='TF_CPP_MIN_LOG_LEVEL=0'`.
 
 Failing unit tests should be documented as a Github ticket.
 
