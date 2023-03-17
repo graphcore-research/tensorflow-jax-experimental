@@ -329,6 +329,7 @@ IpuPjRtClient::IpuPjRtClient(bool asynchronous, int process_id,
   }
   // Tfrt CPU client, handling buffers on host side.
   m_cpu_client = GetTfrtCpuClient(asynchronous, 1).value();
+  CHECK_EQ(m_cpu_client->addressable_devices().size(), 1);
 
   // IPU stream executor client, representing IPU meshes.
   m_se_mesh_client =
@@ -422,6 +423,7 @@ StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
 
   // Compilation using stream executor IPU mesh client.
   // TODO: change device assignment?
+  LOG(INFO) << "IPU PJRT client: compiling device Poplar executable.";
   TF_ASSIGN_OR_RETURN(std::unique_ptr<PjRtExecutable> pjrt_executable,
                       m_se_mesh_client->Compile(computation, options));
   // Cast back to SE executable.
@@ -430,16 +432,32 @@ StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
   // Only supporting single executable for now.
   CHECK_EQ(pjrt_se_executable->executables().size(), 1);
   // Perform a couple of checks on the underlying Poplar executable.
-  TF_RETURN_IF_ERROR(CheckPoplarExecutableValid(
-      GetPoplarExecutable(pjrt_se_executable.get())));
-  // Build IPU PjRt executable, wrappin the later.
-  return std::unique_ptr<PjRtExecutable>(
-      std::make_unique<IpuPjRtExecutable>(m_executable_id_counter.increment(),
-                                          std::move(pjrt_se_executable), this));
+  auto poplar_executable = GetPoplarExecutable(pjrt_se_executable.get());
+  TF_RETURN_IF_ERROR(CheckPoplarExecutableValid(poplar_executable));
+
+  // Optional host executable, when no Poplar engine compiled.
+  auto host_executable = std::unique_ptr<TfrtCpuExecutable>{nullptr};
+  const bool host_executable_required =
+      (poplar_executable->Engine() == nullptr);
+  if (host_executable_required) {
+    LOG(INFO) << "IPU PJRT client: compiling CPU/HOST executable.";
+    // TODO: convert compile options to fit cpu client.
+    TF_ASSIGN_OR_RETURN(auto executable,
+                        m_cpu_client->Compile(computation, options));
+    // Cast back to CPU TFRT executable.
+    host_executable = std::unique_ptr<TfrtCpuExecutable>{
+        static_cast<TfrtCpuExecutable*>(executable.release())};
+  }
+
+  // Build IPU PjRt executable, wrapping IPU and HOST executables.
+  return std::unique_ptr<PjRtExecutable>(std::make_unique<IpuPjRtExecutable>(
+      m_executable_id_counter.increment(), std::move(pjrt_se_executable),
+      std::move(host_executable), this));
 }
 StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
     mlir::ModuleOp module, CompileOptions options) {
   // TODO: convert back to XLA.
+  // FIXME: LLVM bug?
   return Unimplemented("Not implemented MLIR `Compile` on IPU.");
 }
 
@@ -479,10 +497,12 @@ StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtClient::BufferFromHostBuffer(
     HostBufferSemantics host_buffer_semantics,
     std::function<void()> on_done_with_host_buffer, PjRtDevice* device) {
   // Create IPU buffer on the HOST. Will be transfered on IPU when required.
+  // Assigning default HOST device to the cpu buffer.
+  PjRtDevice* host_device = m_cpu_client->addressable_devices()[0];
   TF_ASSIGN_OR_RETURN(std::unique_ptr<PjRtBuffer> cpu_buffer,
                       m_cpu_client->BufferFromHostBuffer(
                           data, type, dims, byte_strides, host_buffer_semantics,
-                          std::move(on_done_with_host_buffer), nullptr));
+                          std::move(on_done_with_host_buffer), host_device));
   return IpuPjRtBuffer::CreateIpuBufferOnHost(std::move(cpu_buffer), device);
 }
 StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtClient::BufferFromHostLiteral(

@@ -129,6 +129,8 @@ bool IpuPjRtBuffer::IsOnCpu() const {
 std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBufferOnHost(
     std::unique_ptr<PjRtBuffer> cpu_buffer, PjRtDevice* device) {
   std::unique_ptr<IpuPjRtBuffer> buffer = std::make_unique<IpuPjRtBuffer>();
+  CHECK_NOTNULL(device);
+  CHECK_NOTNULL(cpu_buffer.get());
   buffer->m_location = IpuPjRtBufferLocation::HOST;
   buffer->m_device = device;
   buffer->m_buffer = std::move(cpu_buffer);

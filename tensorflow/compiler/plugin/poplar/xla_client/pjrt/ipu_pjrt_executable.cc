@@ -76,10 +76,11 @@ Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable) {
 
 IpuPjRtExecutable::IpuPjRtExecutable(
     int64_t executable_id,
-    std::unique_ptr<PjRtStreamExecutorExecutable> se_executable,
-    IpuPjRtClient* client)
+    std::unique_ptr<PjRtStreamExecutorExecutable> ipu_se_executable,
+    std::unique_ptr<TfrtCpuExecutable> host_executable, IpuPjRtClient* client)
     : m_executable_id{executable_id},
-      m_se_executable{std::move(se_executable)},
+      m_ipu_se_executable{std::move(ipu_se_executable)},
+      m_host_executable{std::move(host_executable)},
       m_client{client} {
   const auto& all_devices = client->addressable_devices();
   std::vector<int> device_ids(device_assignment().begin(),
@@ -96,19 +97,21 @@ IpuPjRtExecutable::IpuPjRtExecutable(
       m_client->ipu_mesh_manager().find(device_assignment()).id();
   // A few checks!
   CHECK_GT(m_devices.size(), 0);
-  CHECK_EQ(m_se_executable->executables().size(), 1);
+  CHECK_EQ(m_ipu_se_executable->executables().size(), 1);
+  // Should have at least one or the other!
+  CHECK(bool(m_ipu_se_executable) || bool(m_host_executable));
 }
 
 PjRtClient* IpuPjRtExecutable::client() const { return m_client; }
 // Unique name for this executable, e.g., HloModule name.
 absl::string_view IpuPjRtExecutable::name() const {
-  return m_se_executable->name();
+  return m_ipu_se_executable->name();
 }
 int IpuPjRtExecutable::num_replicas() const {
-  return m_se_executable->num_replicas();
+  return m_ipu_se_executable->num_replicas();
 }
 int IpuPjRtExecutable::num_partitions() const {
-  return m_se_executable->num_partitions();
+  return m_ipu_se_executable->num_partitions();
 }
 int64_t IpuPjRtExecutable::SizeOfGeneratedCodeInBytes() const {
   throw std::runtime_error(
@@ -116,11 +119,11 @@ int64_t IpuPjRtExecutable::SizeOfGeneratedCodeInBytes() const {
 }
 
 const DeviceAssignment& IpuPjRtExecutable::device_assignment() const {
-  return m_se_executable->device_assignment();
+  return m_ipu_se_executable->device_assignment();
 }
 absl::Span<const PjRtExecutable::LogicalDeviceIds>
 IpuPjRtExecutable::addressable_device_logical_ids() const {
-  return m_se_executable->addressable_device_logical_ids();
+  return m_ipu_se_executable->addressable_device_logical_ids();
 }
 absl::Span<PjRtDevice* const> IpuPjRtExecutable::addressable_devices() const {
   return m_devices;
@@ -128,7 +131,7 @@ absl::Span<PjRtDevice* const> IpuPjRtExecutable::addressable_devices() const {
 
 StatusOr<std::vector<std::shared_ptr<HloModule>>>
 IpuPjRtExecutable::GetHloModules() const {
-  return m_se_executable->GetHloModules();
+  return m_ipu_se_executable->GetHloModules();
 }
 
 // Executes on devices addressable by the client. Requires executable has a
@@ -152,10 +155,15 @@ IpuPjRtExecutable::Execute(
     absl::Span<const std::vector<PjRtBuffer*>> argument_handles,
     const ExecuteOptions& options,
     std::optional<std::vector<PjRtFuture<Status>>>& returned_futures) {
+  // Forward call directly to host executable.
+  if (UseHostExecutable()) {
+    return ExecuteOnHost(argument_handles, options, returned_futures);
+  }
+
   auto* host_context = m_client->cpu_client()->GetHostContext();
   // Poplar executable and associated in/out mapping.
   PoplarExecutable* poplar_executable =
-      GetPoplarExecutable(m_se_executable.get());
+      GetPoplarExecutable(m_ipu_se_executable.get());
   const auto io_aliasing_map = poplar_executable->GetInputOutputAliasingMap();
   poplar::Engine* engine = poplar_executable->Engine();
 
@@ -374,6 +382,51 @@ const poplar::Device& IpuPjRtExecutable::GetPoplarDevice() const {
   CHECK_GE(m_device_mesh_id, 0);
   const auto& mesh = m_client->ipu_mesh_manager().find(m_device_mesh_id);
   return mesh.device();
+}
+
+bool IpuPjRtExecutable::UseHostExecutable() const noexcept {
+  // Always use host executable if present.
+  return bool(m_host_executable);
+}
+
+StatusOr<std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>>
+IpuPjRtExecutable::ExecuteOnHost(
+    absl::Span<const std::vector<PjRtBuffer*>> argument_handles,
+    const ExecuteOptions& options,
+    std::optional<std::vector<PjRtFuture<Status>>>& returned_futures) {
+  // Only support single device for now.
+  CHECK_EQ(argument_handles.size(), 1);
+  CHECK(m_host_executable);
+
+  const std::vector<PjRtBuffer*> in_ipu_buffers = argument_handles[0];
+  // Extract host buffers.
+  std::vector<PjRtBuffer*> in_host_buffers;
+  in_host_buffers.reserve(in_ipu_buffers.size());
+  for (std::size_t i = 0; i < in_ipu_buffers.size(); ++i) {
+    auto* ipu_buffer = tensorflow::down_cast<IpuPjRtBuffer*>(in_ipu_buffers[i]);
+    // Only supporting buffer on HOST at the moment.
+    TF_ASSIGN_OR_RETURN(TfrtCpuBuffer * host_buffer,
+                        ipu_buffer->GetHostBuffer());
+    // Make sure there is a device assigned for successful execution.
+    CHECK_NOTNULL(host_buffer->device());
+    in_host_buffers.push_back(host_buffer);
+  }
+  // HOST execute.
+  TF_ASSIGN_OR_RETURN(
+      auto res_host_buffers,
+      m_host_executable->Execute({in_host_buffers}, options, returned_futures));
+
+  // Wrap result buffers as IPU buffers.
+  std::vector<std::unique_ptr<PjRtBuffer>> res_ipu_buffers;
+  res_ipu_buffers.reserve(res_host_buffers.size());
+  for (std::size_t i = 0; i < res_host_buffers.size(); ++i) {
+    auto res_buffer = IpuPjRtBuffer::CreateIpuBufferOnHost(
+        std::move(res_host_buffers[0][i]), m_devices[0]);
+    res_ipu_buffers.push_back(std::move(res_buffer));
+  }
+  std::vector<std::vector<std::unique_ptr<PjRtBuffer>>> result;
+  result.push_back(std::move(res_ipu_buffers));
+  return result;
 }
 
 }  // namespace poplarplugin

@@ -51,10 +51,14 @@ struct IpuPjRtExecutableRunInfo {
  */
 class IpuPjRtExecutable : public PjRtExecutable {
  public:
-  /** Build IPU executable from stream-executor executable.  */
+  /**
+   * @brief Build IPU executable from IPU stream-executor executable,
+   * and optional CPU/host executable.
+   */
   explicit IpuPjRtExecutable(
       int64_t executable_id,
-      std::unique_ptr<PjRtStreamExecutorExecutable> se_executable,
+      std::unique_ptr<PjRtStreamExecutorExecutable> ipu_se_executable,
+      std::unique_ptr<TfrtCpuExecutable> host_executable,
       IpuPjRtClient* client);
   virtual ~IpuPjRtExecutable() = default;
 
@@ -148,11 +152,27 @@ class IpuPjRtExecutable : public PjRtExecutable {
 
   /** Get associated Poplar (mesh) device. */
   const poplar::Device& GetPoplarDevice() const;
+  /** Should we use the host executable? */
+  bool UseHostExecutable() const noexcept;
+
+  /**
+   * @brief Execute directly on HOST/CPU.
+   *
+   * This method is just unwrapping/wrapping IPU buffers, and calling the host
+   * executable.
+   */
+  StatusOr<std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>> ExecuteOnHost(
+      absl::Span<const std::vector<PjRtBuffer*>> argument_handles,
+      const ExecuteOptions& options,
+      std::optional<std::vector<PjRtFuture<Status>>>& returned_futures);
 
   /** (Global/unique) executable id. */
   int64_t m_executable_id;
-  /** Underlying stream executor executable. */
-  std::unique_ptr<PjRtStreamExecutorExecutable> m_se_executable;
+  /** Underlying IPU/device stream executor executable. */
+  std::unique_ptr<PjRtStreamExecutorExecutable> m_ipu_se_executable;
+  /** (Optional) CPU/host TFRT executable. */
+  std::unique_ptr<TfrtCpuExecutable> m_host_executable;
+
   /** PjRt client which compiled the executable. */
   IpuPjRtClient* m_client;
   /** IPU device assignment (addressable devices). */

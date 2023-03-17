@@ -349,45 +349,30 @@ def TestFactory(xla_backend):
   class BufferTest(ComputationTest):
     """Tests focusing on execution with Buffers."""
 
-    # TODO: fix executing on HOST
-    # def testConstantSum(self):
-    #   c = self._NewComputation()
-    #   ops.Add(ops.Constant(c, np.float32(1.11)), ops.Constant(c, np.float32(3.14)))
-    #   self._ExecuteAndCompareClose(c, expected=[4.25])
+    def testConstantSum(self):
+      c = self._NewComputation()
+      ops.Add(ops.Constant(c, np.float32(1.11)), ops.Constant(c, np.float32(3.14)))
+      self._ExecuteAndCompareClose(c, expected=[4.25])
 
-    # def testOneParameterSum(self):
-    #   c = self._NewComputation()
-    #   ops.Add(
-    #       ops.Parameter(c, 0, xla_client.shape_from_pyval(NumpyArrayF32(0.))),
-    #       ops.Constant(c, np.float32(3.14))
-    #   )
-    #   self._ExecuteAndCompareClose(c, arguments=[NumpyArrayF32(1.11)], expected=[4.25])
-
-    # def testTwoParameterSum(self):
-    #   c = self._NewComputation()
-    #   ops.Add(
-    #       ops.Parameter(c, 0, xla_client.shape_from_pyval(NumpyArrayF32(0.0))),
-    #       ops.Parameter(c, 1, xla_client.shape_from_pyval(NumpyArrayF32(0.0)))
-    #   )
-    #   self._ExecuteAndCompareClose(
-    #       c, arguments=[NumpyArrayF32(1.11), NumpyArrayF32(3.14)], expected=[4.25]
-    #   )
-
-    def testIpuPjRtclient__executable__binary_op__multi_executing(self):
-      c = xla_client.XlaBuilder(self.id())
-      arg0 = np.array([10, 15, -2, 7], dtype=np.float32)
-      arg1 = np.array([1, 3, -7, 9], dtype=np.float32)
-      p0 = ops.Parameter(c, 0, xla_client.shape_from_pyval(arg0))
-      p1 = ops.Parameter(c, 1, xla_client.shape_from_pyval(arg1))
-      ops.Mul(p0, p1)
-      executable = self.backend.compile(c.build())
-
-      # First run: loading on device & execute
-      outputs = xla_client.execute_with_python_values(
-          executable, [arg0, arg1], backend=self.backend
+    def testOneParameterSum(self):
+      # NOTE: getting executed on HOST as scalar graph.
+      c = self._NewComputation()
+      ops.Add(
+          ops.Parameter(c, 0, xla_client.shape_from_pyval(NumpyArrayF32(0.))),
+          ops.Constant(c, np.float32(3.14))
       )
-      self.assertEqual(len(outputs), 1)
-      np.testing.assert_equal(outputs[0], arg0 * arg1)
+      self._ExecuteAndCompareClose(c, arguments=[NumpyArrayF32(1.11)], expected=[4.25])
+
+    def testTwoParameterSum(self):
+      # NOTE: getting executed on HOST as scalar graph.
+      c = self._NewComputation()
+      ops.Add(
+          ops.Parameter(c, 0, xla_client.shape_from_pyval(NumpyArrayF32(0.0))),
+          ops.Parameter(c, 1, xla_client.shape_from_pyval(NumpyArrayF32(0.0)))
+      )
+      self._ExecuteAndCompareClose(
+          c, arguments=[NumpyArrayF32(1.11), NumpyArrayF32(3.14)], expected=[4.25]
+      )
 
     @unittest.skipIf(cloud_tpu, "not implemented")
     def testCannotCallWithDeletedBuffers(self):
@@ -647,7 +632,7 @@ def TestFactory(xla_backend):
       ops.Dot(*make_parameters(c, [lhs, rhs]))
       self._ExecuteAndCompareClose(c, arguments=[lhs, rhs], expected=[np.dot(lhs, rhs)])
 
-  # tests.append(SingleOpTest)
+  tests.append(SingleOpTest)
 
   class EmbeddedComputationsTest(ComputationTest):
     """Tests for XLA graphs with embedded computations (such as maps)."""
@@ -1138,7 +1123,7 @@ def TestFactory(xla_backend):
       for device in self.backend.local_devices():
         self.assertEqual(device.platform, self.backend.platform)
 
-  # tests.append(DeviceTest)
+  tests.append(DeviceTest)
 
   class ErrorTest(ComputationTest):
 

@@ -18,6 +18,9 @@ limitations under the License.
 namespace xla {
 namespace poplarplugin {
 
+/**
+ * @brief Atomic counter (int64).
+ */
 class AtomicCounter {
  public:
   using CountType = int64_t;

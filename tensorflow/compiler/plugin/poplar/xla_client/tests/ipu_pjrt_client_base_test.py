@@ -294,7 +294,7 @@ class IpuPjrtClientExecutableTest(parameterized.TestCase):
     self.assertEqual(executable.local_devices(), self.backend.devices())
 
   @parameterized.parameters([
-      # [np.array(5, dtype=np.float32)], # IPU XLA compiler optimizing to HOST.
+      [np.array(5, dtype=np.float32)],  # IPU XLA compiler optimizing to HOST.
       [np.array([10, 15, -2, 7], dtype=np.float32)],  # Running on IPU device.
   ])
   def testIpuPjRtclient__executable__unary_op__multi_executing(self, arg0):
