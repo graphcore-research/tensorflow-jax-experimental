@@ -631,7 +631,7 @@ TfrtCpuBuffer::ScopedHold::~ScopedHold() {
   }
 }
 
-TfrtCpuBuffer::ScopedHold::ScopedHold(ScopedHold&& other)
+TfrtCpuBuffer::ScopedHold::ScopedHold(ScopedHold&& other) noexcept
     : parent_(other.parent_),
       type_(other.type_),
       state_(other.state_),
@@ -642,7 +642,7 @@ TfrtCpuBuffer::ScopedHold::ScopedHold(ScopedHold&& other)
 }
 
 TfrtCpuBuffer::ScopedHold& TfrtCpuBuffer::ScopedHold::operator=(
-    ScopedHold&& other) {
+    ScopedHold&& other) noexcept {
   if (ok()) {
     parent_->DropHold(type_, buffer().get());
   }

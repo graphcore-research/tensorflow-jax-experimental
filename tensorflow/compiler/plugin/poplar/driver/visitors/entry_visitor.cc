@@ -244,10 +244,12 @@ StatusOr<DriverTensor> EntryVisitor::PostProcessParameterAllocation(
         }
       } else {
         // Create a host stream.
+        // TODO: JAX/PJRT why BROADCAST by default? Should be REPLICATE?
+        const auto replicatedMode = poplar::ReplicatedStreamMode::REPLICATE;
         auto fifo =
             graph.addHostToDeviceFIFO(handle, tensor_destination.elementType(),
                                       tensor_destination.numElements(),
-                                      poplar::ReplicatedStreamMode::BROADCAST);
+                                      replicatedMode);
 
         TF_RETURN_IF_ERROR(
             AddHostToDeviceCopy(fifo, tensor_destination,

@@ -18,14 +18,13 @@ import unittest
 from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
+import numpy.testing as npt
 import gc
 
 from tensorflow.compiler.xla.python import xla_client
 from tensorflow.compiler.xla.python import xla_extension
 from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client import (
-    IpuDeviceMesh, IpuDeviceMeshManager, IpuPjRtOptions, get_ipu_client, IpuTargetType,
-    make_ipu_client, IpuPjRtDevice, IpuPjRtClientState, IpuPjRtMeshState,
-    IpuPjRtExecutableRunInfo
+    IpuDeviceMeshManager, IpuPjRtOptions, get_ipu_client, IpuTargetType, IpuPjRtDevice
 )
 
 ops = xla_client.ops
@@ -177,96 +176,7 @@ class IpuPjrtClientBufferTest(parameterized.TestCase):
     self.assertEqual(buffer.unsafe_buffer_pointer(), indata.ctypes.data)
 
 
-class IpuPjrtClientStateTest(parameterized.TestCase):
-
-  @classmethod
-  def setUpClass(cls):
-    # Require real IPU hardware.
-    ipu_options = IpuPjRtOptions(use_ipu_model=False)
-    try:
-      cls.backend = get_ipu_client(True, ipu_options)
-    except RuntimeError:
-      cls.backend = None
-
-  @classmethod
-  def tearDownClass(cls):
-    # Force to delete the IPU client.
-    del cls.backend
-    gc.collect()
-
-  def setUp(self):
-    super(IpuPjrtClientStateTest, self).setUp()
-    if not ipu_hw_available:
-      self.skipTest("No IPU hardware available, skipping test.")
-    # IPU mesh manager for state managment.
-    self.mesh_manager = self.backend.local_devices()[0].ipu_mesh_manager
-
-  def testIpuPjRtclient__executable_run_info__init(self):
-    info = IpuPjRtExecutableRunInfo(mesh_id=1, executable_id=2, run_id=3)
-    self.assertEqual(info.mesh_id, 1)
-    self.assertEqual(info.executable_id, 2)
-    self.assertEqual(info.run_id, 3)
-
-  def testIpuPjRtclient__client_state__initialize(self):
-    state = IpuPjRtClientState.initialize(self.mesh_manager)
-    self.assertIsInstance(state, IpuPjRtClientState)
-    self.assertEqual(len(state), self.mesh_manager.count(1))
-    self.assertEqual([m.mesh_id for m in state.active_meshes], list(range(len(state))))
-    self.assertEqual([m.executable_id for m in state.active_meshes], [0] * len(state))
-    self.assertEqual([m.run_id for m in state.active_meshes], [0] * len(state))
-
-  def testIpuPjRtclient__client_state__update__same_mesh_topology(self):
-    state = IpuPjRtClientState.initialize(self.mesh_manager)
-    run_info = IpuPjRtExecutableRunInfo(mesh_id=1, executable_id=2, run_id=3)
-    state_updated = state.update(run_info, self.mesh_manager)
-    self.assertEqual(len(state_updated), len(state))
-    # New updated mesh info.
-    self.assertEqual(state_updated.active_meshes[1].mesh_id, run_info.mesh_id)
-    self.assertEqual(
-        state_updated.active_meshes[1].executable_id, run_info.executable_id
-    )
-    self.assertEqual(state_updated.active_meshes[1].run_id, run_info.run_id)
-    for idx in range(len(state)):
-      if idx == run_info.mesh_id:
-        continue
-      # All active meshes.
-      self.assertTrue(
-          state_updated.is_active_mesh(state_updated.active_meshes[idx].mesh_id)
-      )
-      # Other meshes are the same.
-      self.assertEqual(
-          state_updated.active_meshes[idx].mesh_id, state.active_meshes[idx].mesh_id
-      )
-      self.assertEqual(
-          state_updated.active_meshes[idx].executable_id,
-          state.active_meshes[idx].executable_id
-      )
-      self.assertEqual(
-          state_updated.active_meshes[idx].run_id, state.active_meshes[idx].run_id
-      )
-    # Last mesh should not be active.
-    self.assertTrue(
-        state_updated.is_active_mesh(state_updated.active_meshes[-1].mesh_id)
-    )
-
-  def testIpuPjRtclient__client_state__update__different_topology(self):
-    state = IpuPjRtClientState.initialize(self.mesh_manager)
-    mesh = self.mesh_manager.find([0, 1])
-    run_info = IpuPjRtExecutableRunInfo(mesh_id=mesh.id, executable_id=2, run_id=3)
-    state_updated = state.update(run_info, self.mesh_manager)
-    self.assertEqual(len(state_updated), len(state) - 1)
-    # New updated mesh info: last one normally.
-    self.assertEqual(state_updated.active_meshes[-1].mesh_id, run_info.mesh_id)
-    self.assertEqual(
-        state_updated.active_meshes[-1].executable_id, run_info.executable_id
-    )
-    self.assertEqual(state_updated.active_meshes[-1].run_id, run_info.run_id)
-    # All other meshes should have greater id.
-    for m in state_updated.active_meshes:
-      self.assertGreaterEqual(m.mesh_id, 2)
-
-
-class IpuPjrtClientExecutableTest(parameterized.TestCase):
+class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
 
   @classmethod
   def setUpClass(cls):

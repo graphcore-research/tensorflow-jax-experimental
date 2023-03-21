@@ -16,6 +16,8 @@ limitations under the License.
 
 #include <poplar/Device.hpp>
 
+#include "tensorflow/compiler/plugin/poplar/driver/poplar_executable.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_device_mesh.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
 #include "tensorflow/compiler/xla/pjrt/tfrt_cpu_pjrt_client.h"
@@ -29,11 +31,20 @@ class IpuPjRtClient;
 /** Get the underlying Poplar executable from an IPU PjRt SE executable. */
 PoplarExecutable* GetPoplarExecutable(PjRtStreamExecutorExecutable* executable);
 
+/**
+ * @brief Create XLA compile options to pass to the Poplar compiler.
+ * This function is doing the translation from PjRt devices to Poplar device.
+ */
+CompileOptions CreatePoplarCompileOptions(
+    const CompileOptions& compile_options,
+    const IpuDeviceMeshManager& mesh_manager);
+
 /** Check a Poplar executable is compatible/valid with IPU PjRt backend. */
-Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable);
+Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable,
+                                  const CompileOptions& compile_options);
 
 /**
- * @brief Representing a single run of an IPU PjRt executable.
+ * @brief Representing basic info on a single run of an IPU PjRt executable.
  */
 struct IpuPjRtExecutableRunInfo {
   /** IPU mesh id on which is executed the program. */
@@ -43,6 +54,110 @@ struct IpuPjRtExecutableRunInfo {
   /** Run id, assigned by the client. */
   int run_id = 0;
   // TODO: status future.
+};
+
+/**
+ * @brief IPU PjRt run raw input buffers (and input events) for a single
+ * replica.
+ */
+struct IpuPjRtRunReplicaInputs {
+  /** Host/CPU input (scoped) buffers. */
+  absl::InlinedVector<TfrtCpuBuffer::ScopedHold, 4> host_buffers;
+  /** Definition events from inputs. */
+  std::vector<tfrt::RCReference<tfrt::AsyncValue>> host_deps;
+
+  /**
+   * @brief Build instance from a span of replica IPU PjRt input buffers.
+   */
+  static StatusOr<IpuPjRtRunReplicaInputs> CreateFromIpuPjRtBuffers(
+      const std::vector<xla::PjRtBuffer*>& inbuffers);
+
+  /** Connect input stream callbacks. TODO: const method. */
+  void ConnectStreamCallbacks(
+      const std::vector<InputOutputAliasingMap::InputInfo>& input_infos,
+      int replica, poplar::Engine* engine);
+};
+
+/**
+ * @brief IPU PjRt run raw output buffers for a single replica.
+ */
+struct IpuPjRtRunReplicaOutputs {
+  /** Raw output host buffers. */
+  absl::InlinedVector<std::shared_ptr<MaybeOwningCpuMemory>, 4>
+      raw_host_buffers;
+  /** Output buffers shape. */
+  absl::InlinedVector<Shape, 4> shapes;
+
+  /** Number of outputs. */
+  std::size_t size() const { return raw_host_buffers.size(); }
+
+  /** Allocate replica output buffers from IO infos. */
+  static StatusOr<IpuPjRtRunReplicaOutputs> AllocateFromOutputInfos(
+      const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos);
+
+  /**
+   * @brief Create wrapping IPU PjRt output buffers.
+   */
+  std::vector<std::unique_ptr<PjRtBuffer>> CreateIpuPjRtBuffers(
+      const tfrt::AsyncValueRef<CpuEvent>& execute_event,
+      PjRtDevice* ipu_device) const;
+
+  /** Connect output stream callbacks. TODO: const method. */
+  void ConnectStreamCallbacks(
+      const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
+      int replica, poplar::Engine* engine);
+};
+
+/**
+ * @brief IPU PjRt executable run state.
+ *
+ * This state data structure is storing all infos and input/output buffers
+ * necessary to do a single IPU engine run.
+ */
+struct IpuPjRtRunState {
+  /** Base run info (id, ...). */
+  IpuPjRtExecutableRunInfo run_info;
+  /** All replicas input buffers. Size: num_replicas. */
+  std::vector<IpuPjRtRunReplicaInputs> all_inputs;
+  /** All replicas outputs buffers. Size: num_replicas. */
+  std::vector<IpuPjRtRunReplicaOutputs> all_outputs;
+
+  /** TFRT execute event (use as definition event for output buffers.) */
+  tfrt::AsyncValueRef<CpuEvent> execute_event;
+  /** Associated PjRt future status. */
+  std::optional<PjRtFuture<Status>> future_status;
+  /** Custom random seed. TODO: remove from executable? */
+  int64_t random_seed = 0;
+
+  /** Number of replicas. */
+  std::size_t num_replicas() const {
+    CHECK_EQ(all_inputs.size(), all_outputs.size());
+    return all_inputs.size();
+  }
+
+  /**
+   * @brief Create/initialize run state with IO buffers.
+   * @param all_input_handles All replicas input buffers.
+   * @param output_infos Output infos.
+   */
+  static StatusOr<IpuPjRtRunState> CreateWithIOBuffers(
+      absl::Span<const std::vector<PjRtBuffer*>> all_input_handles,
+      const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos);
+
+  /**
+   * @brief Connect Poplar stream callbacks to input and output buffers.
+   */
+  void ConnectStreamCallbacks(
+      const std::vector<InputOutputAliasingMap::InputInfo>& input_infos,
+      const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
+      poplar::Engine* engine);
+
+  /**
+   * @brief Create wrapping IPU PjRt output buffers.
+   */
+  std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>
+  CreateOutputIpuPjRtBuffers(const tfrt::AsyncValueRef<CpuEvent>& execute_event,
+                             std::vector<PjRtDevice*> ipu_devices) const;
 };
 
 /**
@@ -59,7 +174,7 @@ class IpuPjRtExecutable : public PjRtExecutable {
       int64_t executable_id,
       std::unique_ptr<PjRtStreamExecutorExecutable> ipu_se_executable,
       std::unique_ptr<TfrtCpuExecutable> host_executable,
-      IpuPjRtClient* client);
+      const CompileOptions& compile_options, IpuPjRtClient* client);
   virtual ~IpuPjRtExecutable() = default;
 
   virtual PjRtClient* client() const;
@@ -172,11 +287,16 @@ class IpuPjRtExecutable : public PjRtExecutable {
   std::unique_ptr<PjRtStreamExecutorExecutable> m_ipu_se_executable;
   /** (Optional) CPU/host TFRT executable. */
   std::unique_ptr<TfrtCpuExecutable> m_host_executable;
+  /** (Original) compilation options of the executable. */
+  CompileOptions m_compile_options;
 
   /** PjRt client which compiled the executable. */
   IpuPjRtClient* m_client;
   /** IPU device assignment (addressable devices). */
   std::vector<PjRtDevice*> m_devices;
+  /** Addressable logical device ids. */
+  std::vector<PjRtExecutable::LogicalDeviceIds>
+      m_addressable_device_logical_ids;
   /** IPU mesh device id. */
   int m_device_mesh_id = -1;
 };

@@ -205,13 +205,13 @@ class IpuDeviceMeshManager {
 
   // Mesh management.
   /** Attach a mesh. */
-  bool attach(IdType mesh_id, bool force_detach_overlapping = true);
+  bool attach(IdType mesh_id, bool force_detach_overlapping = true) const;
   /** Is a mesh already attached? */
   bool isAttached(IdType mesh_id) const;
   /** Detach a mesh. */
-  void detach(IdType mesh_id);
+  void detach(IdType mesh_id) const;
   /** Detach all IPU meshes. */
-  void detachAll();
+  void detachAll() const;
 
  private:
   /** Create from a collection of IPU meshes. */

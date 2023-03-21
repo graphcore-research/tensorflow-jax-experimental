@@ -25,6 +25,60 @@ limitations under the License.
 namespace xla {
 namespace poplarplugin {
 
+/**
+ * @brief IPU input stream callback.
+ */
+class IpuInputStreamCallback : public poplar::StreamCallback {
+ public:
+  IpuInputStreamCallback(std::size_t index, IpuPjRtRunReplicaInputs* inputs)
+      : m_index{index}, m_inputs{inputs} {}
+
+  poplar::StreamCallback::Result prefetch(void* dst) noexcept override {
+    // Not yet supported.
+    return poplar::StreamCallback::Result::NotAvailable;
+  }
+  void fetch(void* dst) noexcept override {
+    // Too complicated => simplify?
+    const auto& inbuffer =
+        m_inputs->host_buffers[m_index].buffer()->Buffers()[0];
+    // Copy from input host TFRT buffer.
+    std::memcpy(dst, inbuffer->data(), inbuffer->size());
+  }
+  void complete() noexcept override {}
+
+ private:
+  /** Output index (in the following data structure). */
+  std::size_t m_index;
+  /** Pointer to raw host input buffers. */
+  IpuPjRtRunReplicaInputs* m_inputs;
+};
+
+/**
+ * @brief IPU output stream callback.
+ */
+class IpuOutputStreamCallback : public poplar::StreamCallback {
+ public:
+  IpuOutputStreamCallback(std::size_t index, IpuPjRtRunReplicaOutputs* outputs)
+      : m_index{index}, m_outputs{outputs} {}
+
+  poplar::StreamCallback::Result prefetch(void* dst) noexcept override {
+    // Not supported for outputs.
+    return poplar::StreamCallback::Result::NotAvailable;
+  }
+  void fetch(void* src) noexcept override {
+    const auto& outbuffer = m_outputs->raw_host_buffers[m_index];
+    // Copy to output host TFRT buffer.
+    std::memcpy(outbuffer->data(), src, outbuffer->size());
+  }
+  void complete() noexcept override {}
+
+ private:
+  /** Output index (in the following data structure). */
+  std::size_t m_index;
+  /** Pointer to raw host output buffers. */
+  IpuPjRtRunReplicaOutputs* m_outputs;
+};
+
 static tfrt::AsyncValueRef<CpuEvent> GetOrCreateReadyEvent(
     tfrt::HostContext* host_context) {
   static const auto* ready_event = new tfrt::AsyncValueRef<CpuEvent>(
@@ -44,7 +98,30 @@ PoplarExecutable* GetPoplarExecutable(
   return poplar_executable;
 }
 
-Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable) {
+CompileOptions CreatePoplarCompileOptions(
+    const CompileOptions& compile_options,
+    const IpuDeviceMeshManager& mesh_manager) {
+  // Always requires device assignment for Poplar backend.
+  CHECK(compile_options.executable_build_options.has_device_assignment());
+  // Get associated IPU Poplar mesh.
+  const auto& ipu_mesh = mesh_manager.find(
+      compile_options.executable_build_options.device_assignment());
+
+  // Adapt execute options to poplar XLA backend/compiler.
+  CompileOptions poplar_compile_options = compile_options;
+  ExecutableBuildOptions& poplar_build_options =
+      poplar_compile_options.executable_build_options;
+  // Set device id to Poplar multi-ipus id.
+  poplar_build_options.set_device_ordinal(ipu_mesh.id());
+  DeviceAssignment poplar_device_assign(
+      poplar_build_options.device_assignment());
+  poplar_device_assign.Fill(ipu_mesh.id());
+  poplar_build_options.set_device_assignment(poplar_device_assign);
+  return poplar_compile_options;
+}
+
+Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable,
+                                  const CompileOptions& compile_options) {
   // Check all inputs/outputs are streaming.
   const auto& io_aliasing_map = poplar_executable->GetInputOutputAliasingMap();
   for (const auto& v : io_aliasing_map.GetEntryInputInfos()) {
@@ -71,26 +148,193 @@ Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable) {
   CHECK_EQ(poplar_executable->GetOutfeedInfos().size(), 0);
   CHECK_EQ(poplar_executable->GetSendInfos().size(), 0);
   CHECK_EQ(poplar_executable->GetRecvInfos().size(), 0);
+  // Consistency of compile options.
+  CHECK(compile_options.executable_build_options.has_device_assignment());
+  const DeviceAssignment& device_assignment =
+      compile_options.executable_build_options.device_assignment();
+  CHECK_EQ(device_assignment.computation_count(), 1);
+  CHECK_EQ(device_assignment.replica_count(),
+           poplar_executable->GetReplicationFactor());
   return Status::OK();
 }
 
+StatusOr<IpuPjRtRunReplicaInputs>
+IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
+    const std::vector<xla::PjRtBuffer*>& inbuffers) {
+  IpuPjRtRunReplicaInputs inputs;
+  // Highly inspired by TFRT CPU client/executable handling of buffers.
+  const auto num_inputs = inbuffers.size();
+  inputs.host_buffers.reserve(num_inputs);
+  inputs.host_deps.reserve(num_inputs);
+  // Extract host input buffers (and input events).
+  for (std::size_t idx = 0; idx < num_inputs; ++idx) {
+    auto* ipu_buffer = tensorflow::down_cast<IpuPjRtBuffer*>(inbuffers[idx]);
+    // Not supporting buffer donation for now.
+    TF_ASSIGN_OR_RETURN(
+        TfrtCpuBuffer::ScopedHold host_buffer_hold,
+        ipu_buffer->GetHostBufferWithHold(TfrtCpuBuffer::ScopedHold::kUsage));
+    if (!host_buffer_hold.ok()) {
+      return InvalidArgument(
+          "Invalid buffer passed to Execute() as argument %d: "
+          "%s",
+          idx, host_buffer_hold.status().ToString());
+    }
+    // Definition events are never modified after buffer construction.
+    for (const auto& ev : host_buffer_hold->DefinitionEvents()) {
+      if (!ev.IsAvailable()) {
+        inputs.host_deps.push_back(ev.CopyRCRef());
+      }
+    }
+    // Not supporting multiple buffers for now.
+    CHECK_EQ(host_buffer_hold->Buffers().size(), 1);
+    inputs.host_buffers.emplace_back(std::move(host_buffer_hold));
+  }
+  return inputs;
+}
+
+void IpuPjRtRunReplicaInputs::ConnectStreamCallbacks(
+    const std::vector<InputOutputAliasingMap::InputInfo>& input_infos,
+    int replica, poplar::Engine* engine) {
+  const auto num_inputs = input_infos.size();
+  for (std::size_t i = 0; i < num_inputs; ++i) {
+    const auto& ininfo = input_infos[i];
+    const auto& inname = ininfo.Handles()[0];
+    // TODO: pass directly raw host buffer?
+    engine->connectStreamToCallback(
+        inname, replica, std::make_unique<IpuInputStreamCallback>(i, this));
+  }
+}
+
+StatusOr<IpuPjRtRunReplicaOutputs>
+IpuPjRtRunReplicaOutputs::AllocateFromOutputInfos(
+    const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos) {
+  IpuPjRtRunReplicaOutputs outputs;
+  // TODO: support tuple outputs?
+  // TODO: improve alllocation to deal with memory fragmentation?
+  const std::size_t num_outputs = output_infos.size();
+  outputs.raw_host_buffers.reserve(num_outputs);
+  for (const auto& output_info : output_infos) {
+    TF_ASSIGN_OR_RETURN(auto out_buffer,
+                        CreateRawHostBuffer(output_info.Shape()));
+    outputs.raw_host_buffers.push_back(out_buffer);
+    outputs.shapes.push_back(output_info.Shape());
+  }
+  return outputs;
+}
+
+std::vector<std::unique_ptr<PjRtBuffer>>
+IpuPjRtRunReplicaOutputs::CreateIpuPjRtBuffers(
+    const tfrt::AsyncValueRef<CpuEvent>& execute_event,
+    PjRtDevice* ipu_device) const {
+  std::vector<std::unique_ptr<PjRtBuffer>> buffers;
+  // Create wrapping PjRt output buffers.
+  const auto num_outputs = this->size();
+  buffers.reserve(num_outputs);
+  for (std::size_t idx = 0; idx < num_outputs; ++idx) {
+    absl::InlinedVector<std::shared_ptr<MaybeOwningCpuMemory>, 4> sub_buffer;
+    sub_buffer.push_back(raw_host_buffers[idx]);
+    // Program execution writes to output buffers so it's a definition event.
+    absl::InlinedVector<tfrt::AsyncValueRef<CpuEvent>, 4> definition_events;
+    definition_events.push_back(execute_event.CopyRef());
+    auto out_tracked_device_buffer =
+        std::make_shared<TrackedTfrtCpuDeviceBuffer>(
+            /*is_tuple=*/false, std::move(sub_buffer),
+            std::move(definition_events));
+    auto out_buffer = IpuPjRtBuffer::CreateIpuBufferOnHost(
+        this->shapes[idx], std::move(out_tracked_device_buffer), ipu_device);
+    buffers.push_back(std::move(out_buffer));
+  }
+  return buffers;
+}
+
+void IpuPjRtRunReplicaOutputs::ConnectStreamCallbacks(
+    const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
+    int replica, poplar::Engine* engine) {
+  const auto num_outputs = output_infos.size();
+  for (std::size_t i = 0; i < num_outputs; ++i) {
+    const auto& outinfo = output_infos[i];
+    const auto& outname = outinfo.Handles()[0];
+    engine->connectStreamToCallback(
+        outname, replica, std::make_unique<IpuOutputStreamCallback>(i, this));
+  }
+}
+
+StatusOr<IpuPjRtRunState> IpuPjRtRunState::CreateWithIOBuffers(
+    absl::Span<const std::vector<PjRtBuffer*>> all_input_handles,
+    const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos) {
+  const auto num_replicas = all_input_handles.size();
+  IpuPjRtRunState run_state;
+  run_state.all_inputs.reserve(num_replicas);
+  run_state.all_outputs.reserve(num_replicas);
+  for (std::size_t replica = 0; replica < num_replicas; ++replica) {
+    // Input buffers for the replica.
+    TF_ASSIGN_OR_RETURN(auto inputs,
+                        IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
+                            all_input_handles[replica]));
+    run_state.all_inputs.push_back(std::move(inputs));
+    // Raw output buffers for the replica.
+    TF_ASSIGN_OR_RETURN(
+        auto outputs,
+        IpuPjRtRunReplicaOutputs::AllocateFromOutputInfos(output_infos));
+    run_state.all_outputs.push_back(std::move(outputs));
+  }
+  return run_state;
+}
+
+void IpuPjRtRunState::ConnectStreamCallbacks(
+    const std::vector<InputOutputAliasingMap::InputInfo>& input_infos,
+    const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
+    poplar::Engine* engine) {
+  const auto num_replicas = all_inputs.size();
+  // Connect streams from all replicas.
+  for (std::size_t replica = 0; replica < num_replicas; ++replica) {
+    all_inputs[replica].ConnectStreamCallbacks(input_infos, replica, engine);
+    all_outputs[replica].ConnectStreamCallbacks(output_infos, replica, engine);
+  }
+  // Random seed as well!
+  engine->connectStream("__seed_stream", (void*)(&random_seed));
+}
+
+std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>
+IpuPjRtRunState::CreateOutputIpuPjRtBuffers(
+    const tfrt::AsyncValueRef<CpuEvent>& execute_event,
+    std::vector<PjRtDevice*> ipu_devices) const {
+  const auto num_replicas = all_inputs.size();
+  std::vector<std::vector<std::unique_ptr<PjRtBuffer>>> all_pjrt_outputs;
+  all_pjrt_outputs.reserve(num_replicas);
+  for (std::size_t idx = 0; idx < num_replicas; ++idx) {
+    all_pjrt_outputs.push_back(
+        all_outputs[idx].CreateIpuPjRtBuffers(execute_event, ipu_devices[idx]));
+  }
+  return all_pjrt_outputs;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////
 IpuPjRtExecutable::IpuPjRtExecutable(
     int64_t executable_id,
     std::unique_ptr<PjRtStreamExecutorExecutable> ipu_se_executable,
-    std::unique_ptr<TfrtCpuExecutable> host_executable, IpuPjRtClient* client)
+    std::unique_ptr<TfrtCpuExecutable> host_executable,
+    const CompileOptions& compile_options, IpuPjRtClient* client)
     : m_executable_id{executable_id},
       m_ipu_se_executable{std::move(ipu_se_executable)},
       m_host_executable{std::move(host_executable)},
+      m_compile_options{compile_options},
       m_client{client} {
   const auto& all_devices = client->addressable_devices();
-  std::vector<int> device_ids(device_assignment().begin(),
-                              device_assignment().end());
+  const std::vector<int> device_ids(device_assignment().begin(),
+                                    device_assignment().end());
   // Build the collection of addressable devices for the executable.
   m_devices.clear();
-  for (const int& id : device_ids) {
-    auto it = std::find_if(all_devices.begin(), all_devices.end(),
-                           [id](auto v) { return v->id() == id; });
+  m_devices.reserve(device_ids.size());
+  m_addressable_device_logical_ids.reserve(device_ids.size());
+  for (std::size_t idx = 0; idx < device_ids.size(); ++idx) {
+    const int device_id = device_ids[idx];
+    auto it =
+        std::find_if(all_devices.begin(), all_devices.end(),
+                     [device_id](auto v) { return v->id() == device_id; });
     m_devices.push_back(*it);
+    m_addressable_device_logical_ids.push_back(
+        PjRtExecutable::LogicalDeviceIds{int(idx), 0});
   }
   // IPU device mesh associated.
   m_device_mesh_id =
@@ -98,6 +342,7 @@ IpuPjRtExecutable::IpuPjRtExecutable(
   // A few checks!
   CHECK_GT(m_devices.size(), 0);
   CHECK_EQ(m_ipu_se_executable->executables().size(), 1);
+  CHECK(m_compile_options.executable_build_options.has_device_assignment());
   // Should have at least one or the other!
   CHECK(bool(m_ipu_se_executable) || bool(m_host_executable));
 }
@@ -108,10 +353,10 @@ absl::string_view IpuPjRtExecutable::name() const {
   return m_ipu_se_executable->name();
 }
 int IpuPjRtExecutable::num_replicas() const {
-  return m_ipu_se_executable->num_replicas();
+  return device_assignment().replica_count();
 }
 int IpuPjRtExecutable::num_partitions() const {
-  return m_ipu_se_executable->num_partitions();
+  return device_assignment().computation_count();
 }
 int64_t IpuPjRtExecutable::SizeOfGeneratedCodeInBytes() const {
   throw std::runtime_error(
@@ -119,11 +364,11 @@ int64_t IpuPjRtExecutable::SizeOfGeneratedCodeInBytes() const {
 }
 
 const DeviceAssignment& IpuPjRtExecutable::device_assignment() const {
-  return m_ipu_se_executable->device_assignment();
+  return m_compile_options.executable_build_options.device_assignment();
 }
 absl::Span<const PjRtExecutable::LogicalDeviceIds>
 IpuPjRtExecutable::addressable_device_logical_ids() const {
-  return m_ipu_se_executable->addressable_device_logical_ids();
+  return m_addressable_device_logical_ids;
 }
 absl::Span<PjRtDevice* const> IpuPjRtExecutable::addressable_devices() const {
   return m_devices;
@@ -184,55 +429,18 @@ IpuPjRtExecutable::Execute(
   LOG(INFO) << "Executing IPU computation " << name()
             << "; num_replicas=" << num_replicas()
             << " num_partitions=" << num_partitions()
-            << " num_addressable_devices=" << num_addressable_devices
-            << "; num_inputs=" << num_inputs << "; num_outputs=" << num_outputs;
+            << "; num_addressable_devices=" << num_addressable_devices
+            << "; num_inputs=" << num_inputs << " num_outputs=" << num_outputs;
 
-  // TODO: support multiple replicas.
-  CHECK_EQ(argument_handles.size(), 1);
-  const int replica = 0;
-  PjRtDevice* ipu_device = m_devices[replica];
+  // PjRt run state with all replicas IO buffers.
+  TF_ASSIGN_OR_RETURN(
+      auto run_state,
+      IpuPjRtRunState::CreateWithIOBuffers(
+          argument_handles, io_aliasing_map.GetEntryOutputInfos()));
 
-  // Highly inspired by TFRT CPU client/executable handling of buffers.
-  absl::InlinedVector<TfrtCpuBuffer::ScopedHold, 4> host_input_buffers;
-  std::vector<tfrt::RCReference<tfrt::AsyncValue>> host_input_deps;
-  host_input_buffers.reserve(num_inputs);
-  host_input_deps.reserve(num_inputs);
-  // Extract host input buffers (and input events).
-  for (int i = 0; i < num_inputs; ++i) {
-    auto* ipu_buffer =
-        tensorflow::down_cast<IpuPjRtBuffer*>(argument_handles[replica][i]);
-    // Not supporting buffer donation for now.
-    TF_ASSIGN_OR_RETURN(
-        TfrtCpuBuffer::ScopedHold host_buffer_hold,
-        ipu_buffer->GetHostBufferWithHold(TfrtCpuBuffer::ScopedHold::kUsage));
-    if (!host_buffer_hold.ok()) {
-      return InvalidArgument(
-          "Invalid buffer passed to Execute() as argument %d to replica %d: "
-          "%s",
-          i, replica, host_buffer_hold.status().ToString());
-    }
-    // Definition events are never modified after buffer construction.
-    for (const auto& ev : host_buffer_hold->DefinitionEvents()) {
-      if (!ev.IsAvailable()) {
-        host_input_deps.push_back(ev.CopyRCRef());
-      }
-    }
-    // Not supporting multiple buffers for now.
-    CHECK_EQ(host_buffer_hold->Buffers().size(), 1);
-    host_input_buffers.emplace_back(std::move(host_buffer_hold));
-  }
   // Poplar engine: if null, means it should be executed on HOST directly
   // (constant, scalar, ...). NOTE: check engine after inputs status.
   CHECK_NOTNULL(engine);
-
-  // Create returned raw HOST buffers.
-  // TODO: handle tuple args and tuple results?
-  absl::InlinedVector<std::shared_ptr<MaybeOwningCpuMemory>, 4> result_buffers;
-  result_buffers.reserve(num_outputs);
-  for (const auto& output : io_aliasing_map.GetEntryOutputInfos()) {
-    TF_ASSIGN_OR_RETURN(auto out_buffer, CreateRawHostBuffer(output.Shape()));
-    result_buffers.push_back(out_buffer);
-  }
 
   // execute_event indicates whether ipu computation is complete and whether
   // there was an error.
@@ -248,6 +456,11 @@ IpuPjRtExecutable::Execute(
   // Should load on device => was mesh id & executable id was part of the
   // previous state.
   const auto prev_mesh = prev_client_state.FindByMeshId(m_device_mesh_id);
+  if (prev_mesh == nullptr) {
+    // Make sure the proper IPU Poplar mesh is attached.
+    // Forcing detaching any other mesh overlapping. TODO: proper wait?
+    m_client->ipu_mesh_manager().attach(m_device_mesh_id, true);
+  }
   const bool load_poplar_engine =
       (prev_mesh == nullptr) || (prev_mesh->executable_id != m_executable_id);
   if (load_poplar_engine) {
@@ -256,55 +469,26 @@ IpuPjRtExecutable::Execute(
     LOG(INFO) << "Load IPU poplar engine " << name()
               << ", executable id: " << run_info.executable_id
               << ", on Poplar device with ID: " << m_device_mesh_id;
+    // First call of the executable => load engine.
     engine->load(device_mesh.device());
   }
 
-  // Connect all streams. TODO: use connect stream to callback.
-  const int64_t custom_seed = 42;
-  tfrt::Await(host_input_deps);
-
-  // TODO: remove seed stream from executable.
-  engine->connectStream("__seed_stream", (void*)(&custom_seed));
-  // Input streams.
-  for (std::size_t i = 0; i < num_inputs; ++i) {
-    const auto& ininfo = io_aliasing_map.GetEntryInputInfos()[i];
-    const auto& inname = ininfo.Handles()[0];
-    const auto& inbuffer = host_input_buffers[i].buffer()->Buffers()[0];
-    engine->connectStream(inname, inbuffer->data());
+  // Wait for all inputs to be ready?
+  for (std::size_t idx = 0; idx < run_state.num_replicas(); ++idx) {
+    tfrt::Await(run_state.all_inputs[idx].host_deps);
   }
-  // Output streams.
-  for (std::size_t i = 0; i < num_outputs; ++i) {
-    const auto& outinfo = io_aliasing_map.GetEntryOutputInfos()[i];
-    const auto& outname = outinfo.Handles()[0];
-    engine->connectStream(outname, result_buffers[i]->data());
-  }
+  // Connect all replicas streams.
+  run_state.ConnectStreamCallbacks(io_aliasing_map.GetEntryInputInfos(),
+                                   io_aliasing_map.GetEntryOutputInfos(),
+                                   engine);
 
   // Synchronous call => blocking thread!
   LOG(INFO) << "Run IPU poplar engine " << name()
             << "; executable id: " << run_info.executable_id
             << "; run id: " << run_info.run_id;
-
   engine->run(PoplarProgramType::MAIN_SEQUENCE);
 
-  // Create wrapping PjRt output buffers.
-  std::vector<std::unique_ptr<PjRtBuffer>> res;
-  res.reserve(num_outputs);
-  for (int i = 0; i < num_outputs; ++i) {
-    const Shape& shape = io_aliasing_map.GetEntryOutputInfos()[i].Shape();
-    absl::InlinedVector<std::shared_ptr<MaybeOwningCpuMemory>, 4> sub_buffer;
-    sub_buffer.push_back(std::move(result_buffers[i]));
-    // Program execution writes to output buffers so it's a definition event.
-    absl::InlinedVector<tfrt::AsyncValueRef<CpuEvent>, 4> definition_events;
-    definition_events.push_back(execute_event.CopyRef());
-    auto out_tracked_device_buffer =
-        std::make_shared<TrackedTfrtCpuDeviceBuffer>(
-            /*is_tuple=*/false, std::move(sub_buffer),
-            std::move(definition_events));
-    auto out_buffer = IpuPjRtBuffer::CreateIpuBufferOnHost(
-        shape, std::move(out_tracked_device_buffer), ipu_device);
-    res.push_back(std::move(out_buffer));
-  }
-
+  // Wrapping execute even as PjRt future status.
   std::optional<PjRtFuture<Status>> future;
   const bool fill_future = true;
   if (fill_future) {
@@ -322,12 +506,13 @@ IpuPjRtExecutable::Execute(
   // Result({/*future=*/std::move(future), /*buffers=*/std::move(res)});
 
   // Returned outputs, for all replica.
-  std::vector<std::vector<std::unique_ptr<PjRtBuffer>>> outputs;
-  outputs.push_back(std::move(res));
+  auto outputs = run_state.CreateOutputIpuPjRtBuffers(execute_event, m_devices);
   // Returned futures, for all replica.
   if (returned_futures) {
     returned_futures.value().clear();
-    returned_futures.value().push_back(future.value());
+    for (std::size_t idx = 0; idx < run_state.num_replicas(); ++idx) {
+      returned_futures.value().push_back(future.value());
+    }
   }
   return outputs;
 }

@@ -231,7 +231,7 @@ const std::vector<IdType>& IpuDeviceMeshManager::overlappingMeshIds(
 }
 
 bool IpuDeviceMeshManager::attach(IdType mesh_id,
-                                  bool force_detach_overlapping) {
+                                  bool force_detach_overlapping) const {
   std::scoped_lock l(m_device_mutex);
   // Already attached => by-pass all checks.
   if (this->find(mesh_id).isAttached()) {
@@ -252,11 +252,11 @@ bool IpuDeviceMeshManager::isAttached(IdType mesh_id) const {
   std::scoped_lock l(m_device_mutex);
   return this->find(mesh_id).isAttached();
 }
-void IpuDeviceMeshManager::detach(IdType mesh_id) {
+void IpuDeviceMeshManager::detach(IdType mesh_id) const {
   std::scoped_lock l(m_device_mutex);
   return this->find(mesh_id).device().detach();
 }
-void IpuDeviceMeshManager::detachAll() {
+void IpuDeviceMeshManager::detachAll() const {
   std::scoped_lock l(m_device_mutex);
   for (const auto& m : m_meshes) {
     m.device().detach();

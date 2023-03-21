@@ -397,9 +397,27 @@ PjRtRuntimeType IpuPjRtClient::runtime_type() const { return kStreamExecutor; }
 
 StatusOr<DeviceAssignment> IpuPjRtClient::GetDefaultDeviceAssignment(
     int num_replicas, int num_partitions) const {
-  // TODO: default IPU mesh?
-  return Unimplemented("Not implemented `GetDefaultDeviceAssignment` on IPU.");
+  if (num_partitions != 1) {
+    return InvalidArgument(
+        "Unsupported number of partitions %i for IPU PjRt client.",
+        num_partitions);
+  }
+  // Is there any mesh with the proper number of devices?
+  const std::size_t num_devices = num_replicas * num_partitions;
+  const bool is_mesh_existing = m_ipu_mesh_manager.count(num_devices);
+  if (!is_mesh_existing) {
+    return InvalidArgument(
+        "No IPU mesh available with %i devices (%i replicas, %i partitions).",
+        num_devices, num_replicas, num_partitions);
+  }
+  // Get the default mesh for this number of devices.
+  const auto& default_mesh = m_ipu_mesh_manager.defaultMesh(num_devices);
+  const auto& ipu_ids = default_mesh.info().ipuIds();
+  auto device_assignment = DeviceAssignment(num_replicas, num_partitions);
+  std::copy(ipu_ids.begin(), ipu_ids.end(), device_assignment.begin());
+  return device_assignment;
 }
+
 StatusOr<std::unique_ptr<HloCostAnalysis>> IpuPjRtClient::GetHloCostAnalysis() {
   // Re-direct to StreamExecutor backend analysis.
   return m_se_mesh_client->GetHloCostAnalysis();
@@ -407,25 +425,23 @@ StatusOr<std::unique_ptr<HloCostAnalysis>> IpuPjRtClient::GetHloCostAnalysis() {
 
 StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
     const XlaComputation& computation, CompileOptions options) {
-  // const auto& build_opts = options.executable_build_options;
-  // Number of devices required for running the computation.
-  // const size_t num_devices =
-  //     build_opts.num_replicas() * build_opts.num_partitions();
-  // Default mesh. TODO: is there already a device assignment?
-  // const auto& mesh = m_ipu_mesh_manager.defaultMesh(num_devices);
-  // const size_t index = m_ipu_mesh_manager.fromMeshIdToIndex(mesh.id());
-  // std::cerr << "COMPILE OPTIONS: "
-  //           << options.executable_build_options.has_device_assignment() << "
-  //           / "
-  //           << options.executable_build_options.num_replicas() << " / "
-  //           << options.executable_build_options.num_partitions() <<
-  //           std::endl;
-
+  // Device assignment required => use a default one if none.
+  if (!options.executable_build_options.has_device_assignment()) {
+    const int num_replicas = options.executable_build_options.num_replicas();
+    const int num_partitions =
+        options.executable_build_options.num_partitions();
+    TF_ASSIGN_OR_RETURN(
+        const auto device_assignment,
+        this->GetDefaultDeviceAssignment(num_replicas, num_partitions));
+    options.executable_build_options.set_device_assignment(device_assignment);
+  }
+  const auto poplar_compile_options =
+      CreatePoplarCompileOptions(options, m_ipu_mesh_manager);
   // Compilation using stream executor IPU mesh client.
-  // TODO: change device assignment?
   LOG(INFO) << "IPU PJRT client: compiling device Poplar executable.";
-  TF_ASSIGN_OR_RETURN(std::unique_ptr<PjRtExecutable> pjrt_executable,
-                      m_se_mesh_client->Compile(computation, options));
+  TF_ASSIGN_OR_RETURN(
+      std::unique_ptr<PjRtExecutable> pjrt_executable,
+      m_se_mesh_client->Compile(computation, poplar_compile_options));
   // Cast back to SE executable.
   std::unique_ptr<PjRtStreamExecutorExecutable> pjrt_se_executable(
       static_cast<PjRtStreamExecutorExecutable*>(pjrt_executable.release()));
@@ -433,7 +449,7 @@ StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
   CHECK_EQ(pjrt_se_executable->executables().size(), 1);
   // Perform a couple of checks on the underlying Poplar executable.
   auto poplar_executable = GetPoplarExecutable(pjrt_se_executable.get());
-  TF_RETURN_IF_ERROR(CheckPoplarExecutableValid(poplar_executable));
+  TF_RETURN_IF_ERROR(CheckPoplarExecutableValid(poplar_executable, options));
 
   // Optional host executable, when no Poplar engine compiled.
   auto host_executable = std::unique_ptr<TfrtCpuExecutable>{nullptr};
@@ -441,7 +457,7 @@ StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
       (poplar_executable->Engine() == nullptr);
   if (host_executable_required) {
     LOG(INFO) << "IPU PJRT client: compiling CPU/HOST executable.";
-    // TODO: convert compile options to fit cpu client.
+    // TODO: convert compile options to fit CPU client.
     TF_ASSIGN_OR_RETURN(auto executable,
                         m_cpu_client->Compile(computation, options));
     // Cast back to CPU TFRT executable.
@@ -452,7 +468,7 @@ StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
   // Build IPU PjRt executable, wrapping IPU and HOST executables.
   return std::unique_ptr<PjRtExecutable>(std::make_unique<IpuPjRtExecutable>(
       m_executable_id_counter.increment(), std::move(pjrt_se_executable),
-      std::move(host_executable), this));
+      std::move(host_executable), options, this));
 }
 StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
     mlir::ModuleOp module, CompileOptions options) {

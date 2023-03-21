@@ -1315,7 +1315,7 @@ Status TransformHlo(HloModule* module, PoplarExecutor* poplar_executor,
     pipeline.AddInvariantChecker<ResourceUpdateChecker>();
 
     // Late root token replacer, to solve JAX infeed/outfeed bug.
-    pipeline.AddPass<RootTokenReplacer>();  
+    pipeline.AddPass<RootTokenReplacer>();
     pipeline.AddPass<HostEmbeddingNotification>();
     pipeline.AddPass<RecomputationInputRemover>();
     pipeline.AddPass<RecomputeInstructions>(resources.recomputation_enabled);

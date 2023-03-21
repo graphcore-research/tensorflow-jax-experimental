@@ -1370,8 +1370,8 @@ def InstantiateTests(globals_dict, backend_fn, test_prefix="", **kw):
 
 
 backends = {
-    # "ipu_legacy": make_ipu_client,
     "ipu":
+        # Using IPU model for quick unit tests.
         lambda: get_ipu_client(
             True,
             IpuPjRtOptions(

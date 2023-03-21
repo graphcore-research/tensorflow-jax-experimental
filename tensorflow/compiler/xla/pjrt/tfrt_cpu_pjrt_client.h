@@ -339,8 +339,8 @@ class TfrtCpuBuffer final : public PjRtBuffer {
     };
 
     ~ScopedHold();
-    ScopedHold(ScopedHold&& other);
-    ScopedHold& operator=(ScopedHold&& other);
+    ScopedHold(ScopedHold&& other) noexcept;
+    ScopedHold& operator=(ScopedHold&& other) noexcept;
 
     ScopedHold(const ScopedHold&) = delete;
     ScopedHold& operator=(const ScopedHold&) = delete;

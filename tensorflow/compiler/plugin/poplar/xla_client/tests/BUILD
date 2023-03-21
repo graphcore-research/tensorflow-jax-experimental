@@ -139,6 +139,25 @@ py_test(
 )
 
 py_test(
+    name = "ipu_pjrt_client_hw_test",
+    testonly = 1,
+    srcs = [
+        "ipu_pjrt_client_hw_test.py",
+    ],
+    srcs_version = "PY3",
+    deps = [
+        "//tensorflow/compiler/plugin/poplar/xla_client/python:ipu_xla_client",
+        "//tensorflow/compiler/xla/python:custom_call_for_test",
+        "//tensorflow/compiler/xla/python:xla_client",
+        "//tensorflow/compiler/xla/python:xla_extension",
+        "//tensorflow/compiler/xla/python:xla_client_test",
+        "@absl_py//absl/flags",
+        "@absl_py//absl/testing:absltest",
+        "@absl_py//absl/testing:parameterized",
+    ] + xla_py_test_deps(),
+)
+
+py_test(
     name = "ipu_pjrt_device_test",
     testonly = 1,
     srcs = [
@@ -167,6 +186,7 @@ test_suite(
         "ipu_xla_pjrt_client_test",
         "ipu_xla_legacy_client_test",
         "ipu_pjrt_client_base_test",
+        "ipu_pjrt_client_hw_test",
         "ipu_pjrt_device_test",
     ],
 )
