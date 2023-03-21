@@ -270,6 +270,10 @@ class IpuPjRtExecutable : public PjRtExecutable {
   /** Should we use the host executable? */
   bool UseHostExecutable() const noexcept;
 
+  /** Validate input arguments (shape, ...) */
+  Status ValidateArgumentHandles(
+      absl::Span<PjRtBuffer* const> argument_handles) const;
+
   /**
    * @brief Execute directly on HOST/CPU.
    *

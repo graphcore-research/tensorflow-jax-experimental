@@ -1044,6 +1044,7 @@ def TestFactory(xla_backend):
         )
         self.assertEqual(result, item)
 
+    @unittest.skipIf(ipu_backend, "Not implemented on IPU.")
     @unittest.skipIf(cloud_tpu, "not implemented")
     def testInfeedTuple(self):
       to_infeed = (NumpyArrayS32([1, 2, 3, 4]), NumpyArrayS32([[7], [8]]))
@@ -1115,7 +1116,7 @@ def TestFactory(xla_backend):
           c, arguments=[a, scatter_indices, updates], expected=[expected]
       )
 
-  # tests.append(EmbeddedComputationsTest)
+  tests.append(EmbeddedComputationsTest)
 
   class DeviceTest(ComputationTest):
 
@@ -1131,6 +1132,8 @@ def TestFactory(xla_backend):
       super(ErrorTest, self).setUp()
       self.f32_scalar_2 = NumpyArrayF32(2.0)
       self.s32_scalar_2 = NumpyArrayS32(2)
+      # self.f32_scalar_2 = NumpyArrayF32([2.0, 3.0, 4.0])
+      # self.s32_scalar_2 = NumpyArrayS32([2, 3, 4])
 
     def testCompileWithWrongElementTypeInLayout(self):
       c = self._NewComputation()
@@ -1151,6 +1154,7 @@ def TestFactory(xla_backend):
           r"expected s32\[\], got f32\[\].*", TestFun
       )
 
+    @unittest.skipIf(ipu_backend, "Not implemented on IPU.")
     def testInvokeWithWrongElementType(self):
       c = self._NewComputation()
       c.set_op_metadata(xla_client.CurrentSourceInfoMetadata())
@@ -1167,7 +1171,7 @@ def TestFactory(xla_backend):
       #     r"want s32\[\], got f32\[\].*", TestFun)
       self.assertRaises(RuntimeError, TestFun)
 
-  # tests.append(ErrorTest)
+  tests.append(ErrorTest)
 
   class ComputationRootTest(ComputationTest):
     """Tests related to setting the root of the computation."""
@@ -1185,7 +1189,7 @@ def TestFactory(xla_backend):
       )
       np.testing.assert_allclose(ans, 4.14)
 
-  # tests.append(ComputationRootTest)
+  tests.append(ComputationRootTest)
 
   class SetShardingTest(ComputationTest):
     """Tests related to set OpSharding."""
@@ -1209,7 +1213,7 @@ def TestFactory(xla_backend):
       )
       np.testing.assert_allclose(ans, 4.14)
 
-  # tests.append(SetShardingTest)
+  tests.append(SetShardingTest)
 
   class DeviceAssignmentTest(ComputationTest):
 
@@ -1224,7 +1228,7 @@ def TestFactory(xla_backend):
       self.assertIsInstance(serialized, bytes)
       self.assertNotEmpty(serialized)
 
-  # tests.append(DeviceAssignmentTest)
+  tests.append(DeviceAssignmentTest)
 
   class HostCallbackTest(ComputationTest):
     """Tests related to HostCallback."""
@@ -1285,7 +1289,7 @@ def TestFactory(xla_backend):
 
       np.testing.assert_equal(results[0].to_py(), np.float32(1.25))
 
-  # tests.append(HostCallbackTest)
+  tests.append(HostCallbackTest)
 
   class HostCallbackMultiReplicaTest(ComputationTest):
     """Tests related to HostCallback for multi-replica execution."""
@@ -1353,7 +1357,7 @@ def TestFactory(xla_backend):
       for i in range(num_replicas):
         np.testing.assert_equal(results[0][i].to_py(), np.uint32(i))
 
-  # tests.append(HostCallbackMultiReplicaTest)
+  tests.append(HostCallbackMultiReplicaTest)
 
   return tests
 

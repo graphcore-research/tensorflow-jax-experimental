@@ -425,6 +425,7 @@ IpuPjRtExecutable::Execute(
   }
   for (const auto& arguments_device : argument_handles) {
     CHECK_EQ(arguments_device.size(), num_inputs);
+    TF_RETURN_IF_ERROR(ValidateArgumentHandles(arguments_device));
   }
   LOG(INFO) << "Executing IPU computation " << name()
             << "; num_replicas=" << num_replicas()
@@ -572,6 +573,39 @@ const poplar::Device& IpuPjRtExecutable::GetPoplarDevice() const {
 bool IpuPjRtExecutable::UseHostExecutable() const noexcept {
   // Always use host executable if present.
   return bool(m_host_executable);
+}
+
+Status IpuPjRtExecutable::ValidateArgumentHandles(
+    absl::Span<PjRtBuffer* const> argument_handles) const {
+  PoplarExecutable* poplar_executable =
+      GetPoplarExecutable(m_ipu_se_executable.get());
+  const ComputationLayout& computation_layout =
+      poplar_executable->module_config().entry_computation_layout();
+
+  // Check argument number, shapes, and layouts.
+  const int argument_shapes_size = argument_handles.size();
+  if (argument_shapes_size != computation_layout.parameter_count()) {
+    return InvalidArgument(
+        "invalid number of arguments for computation: expected %d, got %u",
+        computation_layout.parameter_count(), argument_shapes_size);
+  }
+  for (int i = 0, end = argument_handles.size(); i < end; ++i) {
+    // TODO(b/187081154): Compare tiling info also.
+    const auto& shape = argument_handles[i]->on_device_shape();
+    if (!computation_layout.parameter_layout(i).MatchesLayoutInShape(
+            shape, /*minor_to_major_only=*/false,
+            /*ignore_fully_empty_tiling=*/true)) {
+      return InvalidArgument(
+          "Argument does not match host shape or layout of computation "
+          "parameter "
+          "%d: want %s, got %s",
+          i,
+          ShapeUtil::HumanStringWithLayout(
+              computation_layout.parameter_layout(i).shape()),
+          ShapeUtil::HumanStringWithLayout(shape));
+    }
+  }
+  return Status::OK();
 }
 
 StatusOr<std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>>
