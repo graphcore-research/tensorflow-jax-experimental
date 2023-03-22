@@ -16,14 +16,26 @@
 import os
 from typing import Any, Dict
 
+# NOTE: changing these imports requires updating `patch_copy_ipu_xla_client_py` function in JAX
 from tensorflow.compiler.xla.python import xla_client
 from tensorflow.compiler.plugin.poplar.xla_client.python import ipu_xla_client_pybind as _ipu_xla
 
-from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client_pybind import (
-    IpuDevice, IpuPoplarTargetType, IpuDeviceMeshManager, IpuDeviceMesh, IpuPjRtDevice,
-    IpuDeviceMeshInfo, create_ipu_device_mesh_manager, IpuPjRtOptions, get_ipu_client,
-    IpuPjRtClientState, IpuPjRtMeshState, IpuPjRtExecutableRunInfo, IpuConfig
-)
+# Expose individual pybind11 classes and methods
+ipu_xla_client = _ipu_xla
+IpuDevice = _ipu_xla.IpuDevice
+IpuConfig = _ipu_xla.IpuConfig
+IpuPoplarTargetType = _ipu_xla.IpuPoplarTargetType
+IpuDeviceMeshManager = _ipu_xla.IpuDeviceMeshManager
+IpuDeviceMesh = _ipu_xla.IpuDeviceMesh
+IpuDeviceMeshInfo = _ipu_xla.IpuDeviceMeshInfo
+create_ipu_device_mesh_manager = _ipu_xla.create_ipu_device_mesh_manager
+
+IpuPjRtDevice = _ipu_xla.IpuPjRtDevice
+IpuPjRtOptions = _ipu_xla.IpuPjRtOptions
+IpuPjRtClientState = _ipu_xla.IpuPjRtClientState
+IpuPjRtMeshState = _ipu_xla.IpuPjRtMeshState
+IpuPjRtExecutableRunInfo = _ipu_xla.IpuPjRtExecutableRunInfo
+get_ipu_client = _ipu_xla.get_ipu_client
 
 # Backward compatible declarations.
 IpuTargetType = _ipu_xla.IpuPoplarTargetType
