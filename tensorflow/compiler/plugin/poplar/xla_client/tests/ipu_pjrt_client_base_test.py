@@ -24,13 +24,85 @@ import gc
 from tensorflow.compiler.xla.python import xla_client
 from tensorflow.compiler.xla.python import xla_extension
 from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client import (
-    IpuDeviceMeshManager, IpuPjRtOptions, get_ipu_client, IpuTargetType, IpuPjRtDevice
+    IpuDeviceMeshManager, IpuPjRtOptions, get_ipu_client, IpuTargetType, IpuPjRtDevice,
+    IpuPjRtOptions, make_ipu_client, parse_ipu_env_flags, make_ipu_legacy_config,
+    make_ipu_pjrt_options
 )
 
 ops = xla_client.ops
 
 # Skipping some tests if no local IPU hardware.
 ipu_hw_available = IpuDeviceMeshManager.has_local_ipu_hardware()
+
+
+class IpuPjrtClientFactoryTest(parameterized.TestCase):
+
+  def testIpuPjRtclient__parse_ipu_env_flags__xla_jax_ipu_flags(self):
+    env = {
+        "XLA_IPU_PLATFORM_DEVICE_COUNT": "1",
+        "XLA_IPU_PLATFORM_ALWAYS_REARRANGE_COPIES_ON_THE_HOST": "true",
+        "JAX_IPU_USE_MODEL": "true",
+        "JAX_IPU_MODEL_NUM_TILES": "8",
+        "JAX_IPU_USE_LEGACY_CLIENT": "true",
+        "XLA_IPU_PLATFORM_NUM_IO_TILES": "10",
+        "PATH": "blalba"
+    }
+    flags = parse_ipu_env_flags(env)
+    self.assertEqual(
+        flags, {
+            'always_rearrange_copies_on_the_host': 'true',
+            'device_count': '1',
+            'model_num_tiles': '8',
+            'num_io_tiles': '10',
+            'use_legacy_client': 'true',
+            'use_model': 'true'
+        }
+    )
+
+  def testIpuPjRtclient__make_ipu_legacy_config__from_flags(self):
+    flags = {
+        'always_rearrange_copies_on_the_host': 'true',
+        'device_count': '2',
+        'model_num_tiles': '8',
+        'num_io_tiles': '10',
+        'use_legacy_client': 'true',
+        'use_model': 'true'
+    }
+    ipu_config = make_ipu_legacy_config(flags)
+    self.assertTrue(ipu_config.always_rearrange_copies_on_the_host)
+    self.assertFalse(ipu_config.prefetch_data_streams)
+    self.assertFalse(ipu_config.place_ops_on_io_tiles)
+    self.assertEqual(ipu_config.num_ipus, 2)
+    self.assertEqual(ipu_config.num_io_tiles, 10)
+
+  def testIpuPjRtclient__make_ipu_pjrt_options__from_flags(self):
+    flags = {
+        'always_rearrange_copies_on_the_host': 'true',
+        'device_count': '2',
+        'model_num_tiles': '8',
+        'num_io_tiles': '10',
+        'use_legacy_client': 'true',
+        'use_model': 'true'
+    }
+    ipu_options = make_ipu_pjrt_options(flags)
+    self.assertIsInstance(ipu_options, IpuPjRtOptions)
+    self.assertTrue(ipu_options.use_ipu_model)
+    self.assertEqual(ipu_options.ipu_model_num_tiles, 8)
+    self.assertTrue(ipu_options.always_rearrange_copies_on_the_host)
+    self.assertIsNone(ipu_options.visible_devices)
+
+  def testIpuPjRtclient__make_ipu_client__from_env_variables(self):
+    env = {
+        "XLA_IPU_PLATFORM_DEVICE_COUNT": "1",
+        "XLA_IPU_PLATFORM_ALWAYS_REARRANGE_COPIES_ON_THE_HOST": "false",
+        "JAX_IPU_USE_MODEL": "true",
+        "JAX_IPU_MODEL_NUM_TILES": "8",
+        "JAX_IPU_USE_LEGACY_CLIENT": "false",
+        "XLA_IPU_PLATFORM_NUM_IO_TILES": "0",
+        "PATH": "blalba"
+    }
+    client = make_ipu_client(env)
+    self.assertIsInstance(client, xla_client.Client)
 
 
 class IpuPjrtClientBaseTest(parameterized.TestCase):

@@ -14,6 +14,7 @@
 # ==============================================================================
 """Register XLA client for IPU"""
 import os
+from typing import Any, Dict
 
 from tensorflow.compiler.xla.python import xla_client
 from tensorflow.compiler.plugin.poplar.xla_client.python import ipu_xla_client_pybind as _ipu_xla
@@ -21,14 +22,18 @@ from tensorflow.compiler.plugin.poplar.xla_client.python import ipu_xla_client_p
 from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client_pybind import (
     IpuDevice, IpuPoplarTargetType, IpuDeviceMeshManager, IpuDeviceMesh, IpuPjRtDevice,
     IpuDeviceMeshInfo, create_ipu_device_mesh_manager, IpuPjRtOptions, get_ipu_client,
-    IpuPjRtClientState, IpuPjRtMeshState, IpuPjRtExecutableRunInfo
+    IpuPjRtClientState, IpuPjRtMeshState, IpuPjRtExecutableRunInfo, IpuConfig
 )
 
 # Backward compatible declarations.
 IpuTargetType = _ipu_xla.IpuPoplarTargetType
 
 
-def _str2bool(v: str) -> bool:
+def parse_bool(v: str) -> bool:
+  """Parse bool string value.
+  """
+  if isinstance(v, bool):
+    return v
   true_flags = ("yes", "true", "t", "1")
   false_flags = ("no", "false", "f", "0")
 
@@ -43,51 +48,71 @@ def _str2bool(v: str) -> bool:
     )
 
 
-def make_ipu_client():
-  """Build an IPU XLA client (based on Poplar execution engine).
+def parse_ipu_env_flags(environ: Any = None) -> Dict[str, str]:
+  """Parse IPU flags from environnment variables.
   """
-  num_ipus = os.getenv('XLA_IPU_PLATFORM_DEVICE_COUNT')
+  # Useful for testing not to use global env. variables!
+  if environ is None:
+    environ = os.environ
+  # Allowed prefix of env. flags to parse.
+  prefixes = ["JAX_IPU_", "XLA_IPU_PLATFORM_"]
+  all_flags = {}
+  for prefix in prefixes:
+    flags = {
+        k.replace(prefix, "").lower(): v
+        for k, v in environ.items()
+        if k.startswith(prefix)
+    }
+    all_flags.update(flags)
+  return all_flags
 
+
+def make_ipu_legacy_config(flags: Dict[str, str]) -> IpuConfig:
+  """Create IPU legacy config instance from env. flags.
+  """
   ipu_config = _ipu_xla.IpuConfig()
-  if num_ipus:
-    ipu_config.num_ipus = int(num_ipus)
-  else:
-    ipu_config.num_ipus = 1
+  ipu_config.num_ipus = int(flags.get("device_count", 1))
+  ipu_config.always_rearrange_copies_on_the_host = parse_bool(
+      flags.get("always_rearrange_copies_on_the_host", False)
+  )
+  ipu_config.prefetch_data_streams = parse_bool(
+      flags.get("prefetch_data_streams", False)
+  )
+  ipu_config.place_ops_on_io_tiles = parse_bool(
+      flags.get("place_ops_on_io_tiles", False)
+  )
+  ipu_config.num_io_tiles = int(flags.get("num_io_tiles", 0))
+  ipu_config.io_tile_available_memory_proportion = float(
+      flags.get("io_tile_available_memory_proportion", 0)
+  )
+  return ipu_config
 
-  always_rearrange_copies_on_the_host = \
-      os.getenv('XLA_IPU_PLATFORM_ALWAYS_RERRANGE_COPIES_ON_THE_HOST')
-  if always_rearrange_copies_on_the_host:
-    ipu_config.always_rearrange_copies_on_the_host = \
-        _str2bool(always_rearrange_copies_on_the_host)
 
-  prefetch_data_streams = \
-    os.getenv('XLA_IPU_PLATFORM_PREFETCH_DATA_STREAMS')
-  if prefetch_data_streams:
-    ipu_config.prefetch_data_streams = \
-        _str2bool(prefetch_data_streams)
+def make_ipu_pjrt_options(flags: Dict[str, str]) -> IpuPjRtOptions:
+  """Create IPU PjRt client options from env. flags.
+  """
+  opts = IpuPjRtOptions()
+  # TODO: support `visible_devices` flag.
+  opts.use_ipu_model = parse_bool(flags.get("use_model", opts.use_ipu_model))
+  opts.ipu_model_num_tiles = int(flags.get("model_num_tiles", opts.ipu_model_num_tiles))
+  opts.always_rearrange_copies_on_the_host = parse_bool(
+      flags.get("always_rearrange_copies_on_the_host", False)
+  )
+  opts.prefetch_data_streams = parse_bool(flags.get("prefetch_data_streams", False))
+  return opts
 
-  # IOTilesConfig
-  num_io_tiles = \
-      os.getenv('XLA_IPU_PLATFORM_NUM_IO_TILES')
-  if num_io_tiles:
-    ipu_config.num_io_tiles = int(num_io_tiles)
-  else:
-    ipu_config.num_io_tiles = 0
 
-  place_ops_on_io_tiles = \
-      os.getenv('XLA_IPU_PLATFORM_PLACE_OPS_ON_IO_TILES')
-  if place_ops_on_io_tiles:
-    ipu_config.place_ops_on_io_tiles = \
-        _str2bool(place_ops_on_io_tiles)
+def make_ipu_client(environ: Any = None) -> xla_client.Client:
+  """Build an IPU PjRt XLA client (based on Poplar execution engine).
+  """
+  flags = parse_ipu_env_flags(environ)
+  asynchronous = True
+  # Still use legacy client by default.
+  use_legacy_client = parse_bool(flags.get("use_legacy_client", True))
+  if use_legacy_client:
+    ipu_config = make_ipu_legacy_config(flags)
+    return _ipu_xla.get_legacy_ipu_client(asynchronous, ipu_config=ipu_config)
 
-  if (ipu_config.place_ops_on_io_tiles and ipu_config.num_io_tiles <= 0):
-    raise ValueError("Cannot place ops on I/O tiles when "
-                     "num_io_tiles <= 0")
-
-  io_tile_available_memory_proportion = \
-      os.getenv('XLA_IPU_PLATFORM_IO_TILE_AVAILABLE_MEMORY_PROPORTION')
-  if io_tile_available_memory_proportion:
-    ipu_config.io_tile_available_memory_proportion \
-      = float(io_tile_available_memory_proportion)
-
-  return _ipu_xla.get_legacy_ipu_client(asynchronous=True, ipu_config=ipu_config)
+  # IPU PjRt client, with multi IPUs support.
+  ipu_options = make_ipu_pjrt_options(flags)
+  return get_ipu_client(asynchronous, ipu_options=ipu_options)
