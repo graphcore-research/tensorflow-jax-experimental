@@ -94,7 +94,33 @@ bool IpuPjRtBuffer::IsDeleted() {
 
 StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtBuffer::CopyToDevice(
     PjRtDevice* dst_device) {
-  return Unimplemented("Not implemented `CopyToDevice` on IPU.");
+  // Buffer not on the HOST => transfer not supported.
+  if (m_location != IpuPjRtBufferLocation::HOST) {
+    return Unimplemented(
+        "`CopyToDevice` not implemented for IPU buffers not located on the "
+        "host.");
+  }
+  // Need host buffer!
+  CHECK_NOTNULL(m_buffer);
+  // NOTE: following CPU client convention. TODO, support?
+  if (dst_device == m_device) {
+    return InvalidArgument(
+        "IPU `CopyToDevice` cannot accept the same source and destination "
+        "devices");
+  }
+  // Not the same client: not yet supported. TODO: use CPU client mechanism
+  // copy to device here.
+  if (dst_device->client() != m_device->client()) {
+    return InvalidArgument(
+        "IPU `CopyToDevice` to a different PjRt client is not supported.");
+  }
+  // Same IPU client, different IPU device. Keep same data on host, wrapped in a
+  // new IPU host buffer. Tracked buffer protected by shared_ptr.
+  TF_ASSIGN_OR_RETURN(
+      auto host_buffer_hold,
+      this->GetHostBufferWithHold(TfrtCpuBuffer::ScopedHold::Type::kUsage));
+  return IpuPjRtBuffer::CreateIpuBufferOnHost(
+      this->on_device_shape(), host_buffer_hold.buffer(), dst_device);
 }
 
 using RemoteSendCallback =

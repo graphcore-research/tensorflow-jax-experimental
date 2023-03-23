@@ -41,26 +41,26 @@ except RuntimeError:
   ipu_backend = None
 
 
-class IpuPjrtClientStateTest(parameterized.TestCase):
+class IpuPjrtClientStateHwTest(parameterized.TestCase):
 
   @classmethod
   def setUpClass(cls):
     cls.backend = ipu_backend
 
   def setUp(self):
-    super(IpuPjrtClientStateTest, self).setUp()
+    super(IpuPjrtClientStateHwTest, self).setUp()
     if not ipu_hw_available:
       self.skipTest("No IPU hardware available, skipping test.")
     # IPU mesh manager for state managment.
     self.mesh_manager = self.backend.local_devices()[0].ipu_mesh_manager
 
-  def testIpuPjRtclient__executable_run_info__init(self):
+  def testIpuPjRtclientHw__executable_run_info__init(self):
     info = IpuPjRtExecutableRunInfo(mesh_id=1, executable_id=2, run_id=3)
     self.assertEqual(info.mesh_id, 1)
     self.assertEqual(info.executable_id, 2)
     self.assertEqual(info.run_id, 3)
 
-  def testIpuPjRtclient__client_state__initialize(self):
+  def testIpuPjRtclientHw__client_state__initialize(self):
     state = IpuPjRtClientState.initialize(self.mesh_manager)
     self.assertIsInstance(state, IpuPjRtClientState)
     self.assertEqual(len(state), self.mesh_manager.count(1))
@@ -68,7 +68,7 @@ class IpuPjrtClientStateTest(parameterized.TestCase):
     self.assertEqual([m.executable_id for m in state.active_meshes], [0] * len(state))
     self.assertEqual([m.run_id for m in state.active_meshes], [0] * len(state))
 
-  def testIpuPjRtclient__client_state__update__same_mesh_topology(self):
+  def testIpuPjRtclientHw__client_state__update__same_mesh_topology(self):
     state = IpuPjRtClientState.initialize(self.mesh_manager)
     run_info = IpuPjRtExecutableRunInfo(mesh_id=1, executable_id=2, run_id=3)
     state_updated = state.update(run_info, self.mesh_manager)
@@ -102,7 +102,7 @@ class IpuPjrtClientStateTest(parameterized.TestCase):
         state_updated.is_active_mesh(state_updated.active_meshes[-1].mesh_id)
     )
 
-  def testIpuPjRtclient__client_state__update__different_topology(self):
+  def testIpuPjRtclientHw__client_state__update__different_topology(self):
     state = IpuPjRtClientState.initialize(self.mesh_manager)
     mesh = self.mesh_manager.find([0, 1])
     run_info = IpuPjRtExecutableRunInfo(mesh_id=mesh.id, executable_id=2, run_id=3)
@@ -117,6 +117,31 @@ class IpuPjrtClientStateTest(parameterized.TestCase):
     # All other meshes should have greater id.
     for m in state_updated.active_meshes:
       self.assertGreaterEqual(m.mesh_id, 2)
+
+
+class IpuPjrtClientBufferHwTest(parameterized.TestCase):
+
+  @classmethod
+  def setUpClass(cls):
+    cls.backend = ipu_backend
+
+  def setUp(self):
+    super(IpuPjrtClientBufferHwTest, self).setUp()
+    if not ipu_hw_available:
+      self.skipTest("No IPU hardware available, skipping test.")
+    self.ipu_devices = self.backend.local_devices()
+
+  def testIpuPjRtclientHw__buffer_copy_to_device__other_ipu_device(self):
+    pyval = np.array([[1., 2., 3., 4.]], np.float32)
+    # Zero-copy to IPU device 1.
+    local_buffer1 = self.backend.buffer_from_pyval(pyval, self.ipu_devices[1])
+    # Zero-copy transfer to IPU device 0.
+    local_buffer0 = local_buffer1.copy_to_device(self.ipu_devices[0])
+    # Same raw buffer shared between all arrays.
+    np.testing.assert_equal(pyval, local_buffer0.to_py())
+    np.testing.assert_equal(pyval, local_buffer1.to_py())
+    self.assertEqual(local_buffer0.unsafe_buffer_pointer(), pyval.ctypes.data)
+    self.assertEqual(local_buffer1.unsafe_buffer_pointer(), pyval.ctypes.data)
 
 
 def make_compile_options(devices) -> xla_client.CompileOptions:
@@ -149,14 +174,14 @@ def make_reduce_xla_computation(
   return reduce_builder.build(), replica_group
 
 
-class IpuPjrtClientExecutableTest(parameterized.TestCase):
+class IpuPjrtClientExecutableHwTest(parameterized.TestCase):
 
   @classmethod
   def setUpClass(cls):
     cls.backend = ipu_backend
 
   def setUp(self):
-    super(IpuPjrtClientExecutableTest, self).setUp()
+    super(IpuPjrtClientExecutableHwTest, self).setUp()
     if not ipu_hw_available:
       self.skipTest("No IPU hardware available, skipping test.")
     # IPU mesh manager for state managment.
@@ -184,20 +209,6 @@ class IpuPjrtClientExecutableTest(parameterized.TestCase):
   ):
     with self.assertRaises(xla_extension.XlaRuntimeError):
       self.backend.get_default_device_assignment(num_replicas, num_partitions)
-
-
-class IpuPjrtClientExecutableHardwareTest(parameterized.TestCase):
-
-  @classmethod
-  def setUpClass(cls):
-    cls.backend = ipu_backend
-
-  def setUp(self):
-    super(IpuPjrtClientExecutableHardwareTest, self).setUp()
-    if not ipu_hw_available:
-      self.skipTest("No IPU hardware available, skipping test.")
-    # IPU mesh manager for state managment.
-    self.mesh_manager = self.backend.local_devices()[0].ipu_mesh_manager
 
   def testIpuPjRtclientHw__executable__single_ipu__successful_multi_runs(self):
     compile_opts = make_compile_options([[0]])
