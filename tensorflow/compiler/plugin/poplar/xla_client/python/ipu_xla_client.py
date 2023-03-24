@@ -107,6 +107,9 @@ def make_ipu_pjrt_options(flags: Dict[str, str]) -> IpuPjRtOptions:
   # TODO: support `visible_devices` flag.
   opts.use_ipu_model = parse_bool(flags.get("use_model", opts.use_ipu_model))
   opts.ipu_model_num_tiles = int(flags.get("model_num_tiles", opts.ipu_model_num_tiles))
+  opts.execute_on_host_flops_limit = float(
+      flags.get("execute_on_host_flops_limit", opts.execute_on_host_flops_limit)
+  )
   opts.always_rearrange_copies_on_the_host = parse_bool(
       flags.get("always_rearrange_copies_on_the_host", False)
   )

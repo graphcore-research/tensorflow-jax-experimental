@@ -20,6 +20,7 @@ from absl.testing import parameterized
 import numpy as np
 import numpy.testing as npt
 import gc
+import time
 
 from tensorflow.compiler.xla.python import xla_client
 from tensorflow.compiler.xla.python import xla_extension
@@ -82,7 +83,8 @@ class IpuPjrtClientFactoryTest(parameterized.TestCase):
         'model_num_tiles': '8',
         'num_io_tiles': '10',
         'use_legacy_client': 'true',
-        'use_model': 'true'
+        'use_model': 'true',
+        'execute_on_host_flops_limit': '2.0',
     }
     ipu_options = make_ipu_pjrt_options(flags)
     self.assertIsInstance(ipu_options, IpuPjRtOptions)
@@ -90,6 +92,7 @@ class IpuPjrtClientFactoryTest(parameterized.TestCase):
     self.assertEqual(ipu_options.ipu_model_num_tiles, 8)
     self.assertTrue(ipu_options.always_rearrange_copies_on_the_host)
     self.assertIsNone(ipu_options.visible_devices)
+    self.assertEqual(ipu_options.execute_on_host_flops_limit, 2)
 
   def testIpuPjRtclient__make_ipu_client__from_env_variables(self):
     env = {
@@ -254,7 +257,10 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
   def setUpClass(cls):
     # IPU model with 1 device.
     ipu_options = IpuPjRtOptions(
-        use_ipu_model=True, ipu_model_num_tiles=4, ipu_model_version="ipu2"
+        use_ipu_model=True,
+        ipu_model_num_tiles=4,
+        ipu_model_version="ipu2",
+        execute_on_host_flops_limit=0.0,
     )
     cls.backend = get_ipu_client(True, ipu_options)
 
@@ -317,6 +323,25 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
         executable, [arg0, arg1], backend=self.backend
     )
     np.testing.assert_equal(outputs[0], arg0 * arg1)
+
+  def testIpuPjRtclient__executable__zero_flops__executed_on_host(self):
+    c = xla_client.XlaBuilder(self.id())
+    arg0 = np.array([10, 15, -2, 7], dtype=np.float32)
+    p0 = ops.Parameter(c, 0, xla_client.shape_from_pyval(arg0))
+    ops.SliceInDim(p0, 1, 3, 1, 0)
+    # ~benchmark of compilation time => good measure of compilation for IPU or CPU.
+    start_compile = time.time()
+    executable = self.backend.compile(c.build())
+    end_compile = time.time()
+
+    # Less than 0.1s => can only be host compilation.
+    self.assertLessEqual(end_compile - start_compile, 0.1)
+    # Check result!
+    outputs = xla_client.execute_with_python_values(
+        executable, [arg0], backend=self.backend
+    )
+    self.assertEqual(len(outputs), 1)
+    npt.assert_equal(outputs[0], arg0[1:3])
 
 
 if __name__ == "__main__":

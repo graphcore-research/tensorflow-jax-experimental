@@ -320,6 +320,9 @@ IpuPjRtExecutable::IpuPjRtExecutable(
       m_host_executable{std::move(host_executable)},
       m_compile_options{compile_options},
       m_client{client} {
+  // Should have at least one or the other!
+  CHECK(bool(m_ipu_se_executable) || bool(m_host_executable));
+
   const auto& all_devices = client->addressable_devices();
   const std::vector<int> device_ids(device_assignment().begin(),
                                     device_assignment().end());
@@ -341,16 +344,14 @@ IpuPjRtExecutable::IpuPjRtExecutable(
       m_client->ipu_mesh_manager().find(device_assignment()).id();
   // A few checks!
   CHECK_GT(m_devices.size(), 0);
-  CHECK_EQ(m_ipu_se_executable->executables().size(), 1);
+  CHECK_NOTNULL(GetBaseExecutable());
   CHECK(m_compile_options.executable_build_options.has_device_assignment());
-  // Should have at least one or the other!
-  CHECK(bool(m_ipu_se_executable) || bool(m_host_executable));
 }
 
 PjRtClient* IpuPjRtExecutable::client() const { return m_client; }
 // Unique name for this executable, e.g., HloModule name.
 absl::string_view IpuPjRtExecutable::name() const {
-  return m_ipu_se_executable->name();
+  return GetBaseExecutable()->name();
 }
 int IpuPjRtExecutable::num_replicas() const {
   return device_assignment().replica_count();
@@ -376,7 +377,7 @@ absl::Span<PjRtDevice* const> IpuPjRtExecutable::addressable_devices() const {
 
 StatusOr<std::vector<std::shared_ptr<HloModule>>>
 IpuPjRtExecutable::GetHloModules() const {
-  return m_ipu_se_executable->GetHloModules();
+  return GetBaseExecutable()->GetHloModules();
 }
 
 // Executes on devices addressable by the client. Requires executable has a
@@ -573,6 +574,14 @@ const poplar::Device& IpuPjRtExecutable::GetPoplarDevice() const {
 bool IpuPjRtExecutable::UseHostExecutable() const noexcept {
   // Always use host executable if present.
   return bool(m_host_executable);
+}
+
+PjRtExecutable* IpuPjRtExecutable::GetBaseExecutable() const {
+  PjRtExecutable* base_executable =
+      bool(m_host_executable)
+          ? static_cast<PjRtExecutable*>(m_host_executable.get())
+          : static_cast<PjRtExecutable*>(m_ipu_se_executable.get());
+  return base_executable;
 }
 
 Status IpuPjRtExecutable::ValidateArgumentHandles(

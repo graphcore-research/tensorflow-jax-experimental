@@ -269,6 +269,8 @@ class IpuPjRtExecutable : public PjRtExecutable {
   const poplar::Device& GetPoplarDevice() const;
   /** Should we use the host executable? */
   bool UseHostExecutable() const noexcept;
+  /** Get the base PjRt executable used for execution. */
+  PjRtExecutable* GetBaseExecutable() const;
 
   /** Validate input arguments (shape, ...) */
   Status ValidateArgumentHandles(

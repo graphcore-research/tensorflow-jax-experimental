@@ -126,14 +126,18 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
   // IPU PjRt client bindings.
   py::class_<IpuPjRtOptions>(m, "IpuPjRtOptions")
       .def(py::init<>())
-      .def(py::init<std::optional<std::set<int>>, bool, int, std::string>(),
+      .def(py::init<std::optional<std::set<int>>, bool, int, std::string,
+                    float>(),
            py::arg("visible_devices") = std::nullopt,
            py::arg("use_ipu_model") = false, py::arg("ipu_model_num_tiles") = 4,
-           py::arg("ipu_model_version") = "ipu2")
+           py::arg("ipu_model_version") = "ipu2",
+           py::arg("execute_on_host_flops_limit") = 0.0)
       .def_readwrite("visible_devices", &IpuPjRtOptions::visible_devices)
       .def_readwrite("use_ipu_model", &IpuPjRtOptions::use_ipu_model)
       .def_readwrite("ipu_model_num_tiles",
                      &IpuPjRtOptions::ipu_model_num_tiles)
+      .def_readwrite("execute_on_host_flops_limit",
+                     &IpuPjRtOptions::execute_on_host_flops_limit)
       .def_readwrite("always_rearrange_copies_on_the_host",
                      &IpuPjRtOptions::always_rearrange_copies_on_the_host)
       .def_readwrite("prefetch_data_streams",

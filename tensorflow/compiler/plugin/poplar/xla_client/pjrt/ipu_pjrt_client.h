@@ -38,6 +38,14 @@ struct IpuPjRtOptions {
   /** IPU model hardware version ('ipu2' or 'ipu21') */
   std::string ipu_model_version = "ipu2";
 
+  /** Maximum flops of an XLA computation under which it is directly
+   * executed on the host using a CPU client. More specifically:
+   * < 0: no executable is run on the HOST;
+   * = 0: view only executable run on the HOST;
+   * > 0: small programs run on the HOST;
+   */
+  float execute_on_host_flops_limit = 0.0;
+
   /* The data which is streamed to/from the device might be stored in different
   layouts on the device and on the host. If so, rearrangement is performed on
   the device by default. By enabling this option the rearrangement will be
@@ -307,6 +315,18 @@ class IpuPjRtClient : public PjRtClient {
    */
   std::tuple<IpuPjRtExecutableRunInfo, IpuPjRtClientState, IpuPjRtClientState>
   UpdateClientState(int mesh_id, int executable_id);
+
+  /**
+   * @brief Should we run an IPU XLA computation directly on HOST? For
+   * efficiency and user experience.
+   *
+   * This function is using HLO module analysis to decide whether to run a
+   * computation on host. At the moment, multi devices computation are not
+   * supported on host.
+   */
+  StatusOr<bool> IsIpuExecutableRunOnHost(
+      const XlaComputation& computation,
+      const CompileOptions& options) const noexcept;
 
  private:
   bool m_asynchronous;

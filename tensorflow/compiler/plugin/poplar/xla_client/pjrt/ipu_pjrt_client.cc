@@ -435,27 +435,42 @@ StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
         this->GetDefaultDeviceAssignment(num_replicas, num_partitions));
     options.executable_build_options.set_device_assignment(device_assignment);
   }
-  const auto poplar_compile_options =
-      CreatePoplarCompileOptions(options, m_ipu_mesh_manager);
-  // Compilation using stream executor IPU mesh client.
-  LOG(INFO) << "IPU PJRT client: compiling device Poplar executable.";
-  TF_ASSIGN_OR_RETURN(
-      std::unique_ptr<PjRtExecutable> pjrt_executable,
-      m_se_mesh_client->Compile(computation, poplar_compile_options));
-  // Cast back to SE executable.
-  std::unique_ptr<PjRtStreamExecutorExecutable> pjrt_se_executable(
-      static_cast<PjRtStreamExecutorExecutable*>(pjrt_executable.release()));
-  // Only supporting single executable for now.
-  CHECK_EQ(pjrt_se_executable->executables().size(), 1);
-  // Perform a couple of checks on the underlying Poplar executable.
-  auto poplar_executable = GetPoplarExecutable(pjrt_se_executable.get());
-  TF_RETURN_IF_ERROR(CheckPoplarExecutableValid(poplar_executable, options));
 
-  // Optional host executable, when no Poplar engine compiled.
+  // IPU Poplar XLA executable.
+  auto pjrt_se_executable =
+      std::unique_ptr<PjRtStreamExecutorExecutable>{nullptr};
+  // Host CPU TFRT executable (in case executing on host).
   auto host_executable = std::unique_ptr<TfrtCpuExecutable>{nullptr};
-  const bool host_executable_required =
-      (poplar_executable->Engine() == nullptr);
-  if (host_executable_required) {
+  // Should we just execute on host?
+  TF_ASSIGN_OR_RETURN(bool execute_on_host,
+                      IsIpuExecutableRunOnHost(computation, options));
+
+  // Try compiling Poplar executable.
+  if (!execute_on_host) {
+    const auto poplar_compile_options =
+        CreatePoplarCompileOptions(options, m_ipu_mesh_manager);
+    // Compilation using stream executor IPU mesh client.
+    LOG(INFO) << "IPU PJRT client: compiling device Poplar executable.";
+    TF_ASSIGN_OR_RETURN(
+        std::unique_ptr<PjRtExecutable> pjrt_executable,
+        m_se_mesh_client->Compile(computation, poplar_compile_options));
+    // Cast back to SE executable.
+    pjrt_se_executable = std::unique_ptr<PjRtStreamExecutorExecutable>(
+        static_cast<PjRtStreamExecutorExecutable*>(pjrt_executable.release()));
+    // Only supporting single executable for now.
+    CHECK_EQ(pjrt_se_executable->executables().size(), 1);
+    // Perform a couple of checks on the underlying Poplar executable.
+    auto poplar_executable = GetPoplarExecutable(pjrt_se_executable.get());
+    TF_RETURN_IF_ERROR(CheckPoplarExecutableValid(poplar_executable, options));
+
+    // Is there a poplar engine? Or IPU XLA backend also thinks it should be
+    // executed on host!
+    execute_on_host |= (poplar_executable->Engine() == nullptr);
+  }
+
+  if (execute_on_host) {
+    // No need to keep an IPU stream-executor executable, in case it exists.
+    pjrt_se_executable.reset();
     LOG(INFO) << "IPU PJRT client: compiling CPU/HOST executable.";
     // TODO: convert compile options to fit CPU client.
     TF_ASSIGN_OR_RETURN(auto executable,
@@ -577,6 +592,31 @@ IpuPjRtClient::UpdateClientState(int mesh_id, int executable_id) {
       IpuPjRtExecutableRunInfo{mesh_id, executable_id, next_run_id()};
   m_client_state = m_client_state.Update(run_info, m_ipu_mesh_manager);
   return std::make_tuple(run_info, current_state, m_client_state);
+}
+
+StatusOr<bool> IpuPjRtClient::IsIpuExecutableRunOnHost(
+    const XlaComputation& computation,
+    const CompileOptions& options) const noexcept {
+  const auto num_devices = options.executable_build_options.num_replicas() *
+                           options.executable_build_options.num_partitions();
+  // Not yet supporting. TODO: support multi devices when no collective used.
+  if (num_devices > 1) {
+    return false;
+  }
+  // Using CPU client cost analysis (in particular flops)
+  TF_ASSIGN_OR_RETURN(auto analysis, m_cpu_client->GetHloCostAnalysis());
+
+  TF_ASSIGN_OR_RETURN(const HloModuleConfig module_config,
+                      HloModule::CreateModuleConfigFromProto(
+                          computation.proto(), GetDebugOptionsFromFlags()));
+  TF_ASSIGN_OR_RETURN(
+      std::unique_ptr<HloModule> module,
+      HloModule::CreateFromProto(computation.proto(), module_config));
+  TF_RETURN_IF_ERROR(module->entry_computation()->Accept(analysis.get()));
+  const float flops = analysis->flop_count();
+  // Run on host if flops small enough.
+  const bool run_on_host = (flops <= m_options.execute_on_host_flops_limit);
+  return run_on_host;
 }
 
 // Factory methods.

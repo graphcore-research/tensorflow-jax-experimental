@@ -1379,7 +1379,9 @@ backends = {
         lambda: get_ipu_client(
             True,
             IpuPjRtOptions(
-                use_ipu_model=True, ipu_model_num_tiles=8, ipu_model_version="ipu2"
+                use_ipu_model=True, ipu_model_num_tiles=8, ipu_model_version="ipu2",
+                # No dispatch to host by default.
+                execute_on_host_flops_limit=-1
             )
         ),
 }
