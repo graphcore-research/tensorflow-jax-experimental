@@ -101,6 +101,7 @@ class BaseVisitor : public DfsHloVisitor {
   HANDLE_AS_HLO_OP(HandleCompare)
   HANDLE_AS_HLO_OP(HandleRng)
   HANDLE_AS_HLO_OP(HandleReplicaId)
+  HANDLE_AS_HLO_OP(HandlePartitionId)
 
   /*
    * Operations not processed by this visitor.
@@ -140,7 +141,6 @@ class BaseVisitor : public DfsHloVisitor {
   UNIMPLEMENTED(HandleGetDimensionSize)
   UNIMPLEMENTED(HandleTriangularSolve)
   UNIMPLEMENTED(HandleCholesky)
-  UNIMPLEMENTED(HandlePartitionId)
   UNIMPLEMENTED(HandleRngGetAndUpdateState)
   UNIMPLEMENTED(HandleCopyStart)
   UNIMPLEMENTED(HandleCopyDone)

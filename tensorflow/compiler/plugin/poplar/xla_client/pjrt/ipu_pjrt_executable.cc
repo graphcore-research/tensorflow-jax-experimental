@@ -148,13 +148,22 @@ Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable,
   CHECK_EQ(poplar_executable->GetOutfeedInfos().size(), 0);
   CHECK_EQ(poplar_executable->GetSendInfos().size(), 0);
   CHECK_EQ(poplar_executable->GetRecvInfos().size(), 0);
+
   // Consistency of compile options.
   CHECK(compile_options.executable_build_options.has_device_assignment());
   const DeviceAssignment& device_assignment =
       compile_options.executable_build_options.device_assignment();
-  CHECK_EQ(device_assignment.computation_count(), 1);
-  CHECK_EQ(device_assignment.replica_count(),
-           poplar_executable->GetReplicationFactor());
+  if (compile_options.executable_build_options.use_spmd_partitioning()) {
+    // SPMD partitioner => XLA using partitions, not replicas.
+    CHECK_EQ(device_assignment.replica_count(), 1);
+    CHECK_EQ(device_assignment.computation_count(),
+             poplar_executable->GetReplicationFactor());
+  } else {
+    // Normal JAX/XLA pmap replica config.
+    CHECK_EQ(device_assignment.computation_count(), 1);
+    CHECK_EQ(device_assignment.replica_count(),
+             poplar_executable->GetReplicationFactor());
+  }
   return Status::OK();
 }
 

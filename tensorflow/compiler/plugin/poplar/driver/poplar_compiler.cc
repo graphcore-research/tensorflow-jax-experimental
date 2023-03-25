@@ -200,6 +200,13 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/while_loop_invariant_code_motion.h"
 #include "tensorflow/compiler/xla/service/while_loop_simplifier.h"
 #include "tensorflow/compiler/xla/service/zero_sized_hlo_elimination.h"
+#include "tensorflow/compiler/xla/service/call_inliner.h"
+#include "tensorflow/compiler/xla/service/conditional_canonicalizer.h"
+#include "tensorflow/compiler/xla/service/zero_sized_hlo_elimination.h"
+#include "tensorflow/compiler/xla/service/sharding_propagation.h"
+#include "tensorflow/compiler/xla/service/spmd/stateful_rng_spmd_partitioner.h"
+#include "tensorflow/compiler/xla/service/sharding_remover.h"
+
 #include "tensorflow/compiler/xla/shape_util.h"
 #include "tensorflow/compiler/xla/status_macros.h"
 #include "tensorflow/core/lib/core/errors.h"
@@ -1108,6 +1115,36 @@ Status TransformHlo(HloModule* module, PoplarExecutor* poplar_executor,
   Tracepoint tracepoint("HloOptimizerPipeline");
   std::unique_ptr<PVTICompilerStats> pipeline_compiler_stats =
       absl::make_unique<PVTICompilerStats>();
+
+  // PJIT/SPMD partitioning pipeline.
+  if (module->config().use_spmd_partitioning()) {
+    HloPassPipeline spmd_pipeline("spmd-partitioner");
+    const int64_t num_partitions = module->config().num_partitions();
+    if (num_partitions > 1) {
+      // Run some IR cleanup passes before running the SPMD partitioning
+      // passes.
+      spmd_pipeline.AddInvariantChecker<HloVerifier>(HloVerifierOpts{});
+      // spmd_pipeline.AddPass<CallInliner>();
+      spmd_pipeline.AddPass<ZeroSizedHloElimination>();
+      spmd_pipeline.AddPass<ConditionalCanonicalizer>();
+
+      spmd_pipeline.AddPass<ShardingPropagation>(
+          /*is_spmd=*/true, /*propagate_metadata=*/false,
+          module->config().allow_spmd_sharding_propagation_to_output());
+      spmd_pipeline.AddPass<spmd::StatefulRngSpmdPartitioner>(
+          num_partitions, module->config().replica_count());
+    } else {
+      // Remove redundant sharding ops when partition_count == 1.
+      spmd_pipeline.AddPass<ShardingRemover>();
+      spmd_pipeline.AddPass<HloDCE>();
+    }
+    TF_RETURN_IF_ERROR(spmd_pipeline.Run(module).status());
+    // Re-compute module annotations, as SPMD partitioner
+    // may change IO shapes.
+    resources.annotations = CompilerAnnotations(module);
+  }
+
+  // Original IPU HLO optimization pass.
   HloPassPipeline optimizer_pipeline("OptimizerPipeline",
                                      pipeline_compiler_stats.get());
 
@@ -2125,11 +2162,21 @@ StatusOr<std::vector<std::unique_ptr<Executable>>> PoplarCompiler::Compile(
     return tensorflow::errors::Unimplemented(
         "Compilation of multiple HLO modules is not supported on Poplar.");
   }
-  if (stream_exec.size() != 1 || stream_exec[0].size() != 1) {
-    return tensorflow::errors::Unimplemented(
-        "Unexpected number of StreamExecutor's.");
-  }
   auto hlo_modules = module_group->ConsumeModules();
+
+  const bool use_spmd_partitioning = hlo_modules[0]->config().use_spmd_partitioning();
+  if (!use_spmd_partitioning) {
+    if (stream_exec.size() != 1 || stream_exec[0].size() != 1) {
+      return InvalidArgument(
+          "Unexpected number of StreamExecutor's: %d and %d.",
+          stream_exec.size(), stream_exec[0].size());
+    }
+  }
+  else {
+    // Auto SPMD: just check there is at least a single stream executor.
+    CHECK_GE(stream_exec.size(), 1);
+    CHECK_GE(stream_exec[0].size(), 1);
+  }
   TF_ASSIGN_OR_RETURN(auto module, RunHloPasses(std::move(hlo_modules[0]),
                                                 stream_exec[0][0], options));
   TF_ASSIGN_OR_RETURN(auto executable, RunBackend(std::move(module),

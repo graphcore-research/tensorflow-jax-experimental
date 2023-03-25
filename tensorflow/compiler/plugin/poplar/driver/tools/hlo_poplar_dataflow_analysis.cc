@@ -443,8 +443,8 @@ class DataflowAnalysisBufferVisitor : public DfsHloVisitorWithDefault {
     // Single `optimization_barrier` operand normally?
     for (int64_t i = 0; i != inst->operand_count(); ++i) {
       HloInstruction* operand = inst->mutable_operand(i);
-      
-      for (auto& indexed_shape : ShapeUtil::GetLeafShapes(operand->shape())) {  
+
+      for (auto& indexed_shape : ShapeUtil::GetLeafShapes(operand->shape())) {
         const HloPoplarPosition input_position{operand, indexed_shape.index};
         const ShapeIndex output_index = indexed_shape.index;
         // No push front index `i`?
@@ -566,6 +566,7 @@ class DataflowAnalysisBufferVisitor : public DfsHloVisitorWithDefault {
   HANDLE_AS_NOT_INPLACE(HandleReduceWindow);
   HANDLE_AS_NOT_INPLACE(HandleRng);
   HANDLE_AS_NOT_INPLACE(HandleReplicaId);
+  HANDLE_AS_NOT_INPLACE(HandlePartitionId);
   HANDLE_AS_NOT_INPLACE(HandleSelectAndScatter);
   HANDLE_AS_NOT_INPLACE(HandleTriangularSolve);
   // TODO(T20398): Clamp and Select could be inplace on operand index 1.

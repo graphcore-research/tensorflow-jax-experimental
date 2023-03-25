@@ -53,6 +53,30 @@ class ReplicationIndexOp : public PoplarOpDef {
 };
 REGISTER_HLO_OP(kReplicaId, ReplicationIndexOp);
 
+/**
+ * PartitionId Poplar implementation: using replication index
+ * from Poplar, as we assume either num_partitions > 1 or num_replicas > 1
+ *
+ * Partition id is used by JAX PJIT spmd partitioner.
+ */
+class PartitionIndexOp : public PoplarOpDef {
+  StatusOr<DriverProgramSequence> Creator(
+      DriverGraph& graph, CompilerResources& res, const HloInstruction* inst,
+      const xla::Shape& output_shape, TensorMap& tensor_map,
+      const poplar::DebugContext& debug_context) override {
+    PoplarOpDefDebugInfo debug_info(debug_context, "PartitionIndexOp");
+    // TensorFlow requires slices to be signed integers, we therefore type cast
+    // to int32.
+    auto output = graph.addReplicationIndexConstant();
+    graph.setTileMapping(output, 0);
+
+    TF_CHECK_OK(AddOutputTensor(tensor_map, inst, 0, output));
+
+    return DriverProgramSequence(debug_info);
+  }
+};
+REGISTER_HLO_OP(kPartitionId, PartitionIndexOp);
+
 }  // namespace
 }  // namespace poplarplugin
 }  // namespace xla
