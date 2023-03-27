@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""IPU PRJT device API unit tests."""
+"""IPU PRJT device API unit tests (using IPU model)."""
 import unittest
 
 from absl.testing import absltest

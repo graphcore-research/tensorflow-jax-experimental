@@ -12,14 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""IPU PRJT device API unit tests."""
-import unittest
-
+"""IPU PRJT device API unit tests (on real IPU hardware)."""
 from absl.testing import absltest
 from absl.testing import parameterized
 import numpy as np
 import numpy.testing as npt
-import gc
 
 from tensorflow.compiler.xla.python import xla_client
 from tensorflow.compiler.xla.python import xla_extension
@@ -164,14 +161,11 @@ def make_reduce_xla_computation(
   """
   devices = np.ravel(devices)
   input_aval = np.array(0.0, dtype=np.float32)
-  replica_group = xla_client.ReplicaGroup()
-  replica_group.replica_ids = list(devices)
-
   reduce_builder = xla_client.XlaBuilder("reduce_op")
   p0 = ops.Parameter(reduce_builder, 0, xla_client.shape_from_pyval(input_aval))
   p1 = ops.Parameter(reduce_builder, 1, xla_client.shape_from_pyval(input_aval))
   reduce_op(p0, p1)
-  return reduce_builder.build(), replica_group
+  return reduce_builder.build()
 
 
 class IpuPjrtClientExecutableHwTest(parameterized.TestCase):
@@ -236,20 +230,28 @@ class IpuPjrtClientExecutableHwTest(parameterized.TestCase):
   def testIpuPjRtclientHw__executable_multi_ipus__successful_compilation(self):
     # NOTE: good to test different IPU meshes in tests, to catch weird bugs!
     device_ids = [[0], [1]]
+    replica_groups = [[0, 1]]
     compile_opts = make_compile_options(device_ids)
     arg0 = np.array([10, -2, 7], dtype=np.float32)
 
     c = xla_client.XlaBuilder(self.id())
     p0 = ops.Parameter(c, 0, xla_client.shape_from_pyval(arg0))
-    reduce_op, replica_group = make_reduce_xla_computation(device_ids, ops.Add)
-    ops.AllReduce(p0, reduce_op, replica_groups=[replica_group])
+    reduce_op = make_reduce_xla_computation(device_ids, ops.Add)
+    ops.AllReduce(
+        p0, reduce_op, replica_groups=xla_client.make_replica_groups(replica_groups)
+    )
     executable = self.backend.compile(c.build(), compile_opts)
 
     # TODO: additional testing on PjRt executable.
     npt.assert_array_equal([d.id for d in executable.local_devices()],
                            np.ravel(device_ids))
 
-  def testIpuPjRtclientHw__executable_multi_ipus__all_reduce_sum(self):
+  @parameterized.parameters([
+      [[[0, 1, 2, 3]]],
+      [[[0, 1], [2, 3]]],
+      [[[0, 2], [1, 3]]],
+  ])
+  def testIpuPjRtclientHw__executable_multi_ipus__all_reduce_sum(self, replica_groups):
     # IPU POD4 all reduce
     # NOTE: good to test different IPU meshes in tests, to catch weird bugs!
     device_ids = [[0], [1], [2], [3]]
@@ -259,8 +261,10 @@ class IpuPjrtClientExecutableHwTest(parameterized.TestCase):
 
     c = xla_client.XlaBuilder(self.id())
     p0 = ops.Parameter(c, 0, xla_client.shape_from_pyval(arg0))
-    reduce_op, replica_group = make_reduce_xla_computation(device_ids, ops.Add)
-    ops.AllReduce(p0, reduce_op, replica_groups=[replica_group])
+    reduce_op = make_reduce_xla_computation(device_ids, ops.Add)
+    ops.AllReduce(
+        p0, reduce_op, replica_groups=xla_client.make_replica_groups(replica_groups)
+    )
     executable = self.backend.compile(c.build(), compile_opts)
 
     # Different data on every IPU.
@@ -269,11 +273,13 @@ class IpuPjrtClientExecutableHwTest(parameterized.TestCase):
         executable, inputs, self.backend
     )
 
-    expected_output = np.sum([v[0] for v in inputs], axis=0)
-    self.assertEqual(len(outputs), num_devices)
     # TODO: additional testing on output device assignment.
-    for out in outputs:
-      npt.assert_array_almost_equal(out[0], expected_output)
+    self.assertEqual(len(outputs), num_devices)
+    # Proper all-reduce, per replica group.
+    for group in replica_groups:
+      expected_output = np.sum([inputs[id][0] for id in group], axis=0)
+      for id in group:
+        npt.assert_array_almost_equal(outputs[id][0], expected_output)
 
 
 if __name__ == "__main__":

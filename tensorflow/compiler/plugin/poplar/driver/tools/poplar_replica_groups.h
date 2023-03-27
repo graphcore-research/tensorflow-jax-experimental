@@ -74,6 +74,14 @@ class PoplarReplicaGroups {
 
 std::ostream& operator<<(std::ostream& oss, const PoplarReplicaGroups& groups);
 
+/** Convert XLA replica group to string representation. */
+std::string ToString(const xla::ReplicaGroup& group);
+/** Convert a collection of XLA replica groups to str. */
+std::string ToString(absl::Span<const xla::ReplicaGroup> groups);
+
+/** Get the stride of a replica group (return error if not consistent). */
+StatusOr<int64_t> GetReplicaGroupStride(const xla::ReplicaGroup& group);
+
 }  // namespace poplarplugin
 }  // namespace xla
 
@@ -84,6 +92,7 @@ struct hash<xla::poplarplugin::PoplarReplicaGroups> {
     return groups.Hash();
   }
 };
+
 }  // namespace std
 
 #endif  // TENSORFLOW_COMPILER_PLUGIN_POPLAR_DRIVER_TOOLS_POPLAR_REPLICA_GROUPS_H_

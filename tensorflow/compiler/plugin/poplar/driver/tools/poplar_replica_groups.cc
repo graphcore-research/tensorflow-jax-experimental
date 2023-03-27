@@ -86,38 +86,49 @@ PoplarReplicaGroups::FromXlaReplicaGroups(
   if (groups.empty()) {
     return PoplarReplicaGroups();
   }
-
+  // Readable replica groups visualization: helping error msgs.
+  const std::string groups_repr = xla::poplarplugin::ToString(groups);
   const int64_t num_groups = groups.size();
   const int64_t group_size = groups[0].replica_ids_size();
   if (group_size == 0) {
-    return xla::InvalidArgument("Unsupported empty replica group");
+    return xla::InvalidArgument("Unsupported empty replica group. Input replica groups: ", groups_repr);
   }
 
+  TF_ASSIGN_OR_RETURN(const int64_t group_stride, GetReplicaGroupStride(groups[0]));
+  // Check replica group topology is supported by IPU collectives.
   for (int64_t i = 0; i < num_groups; ++i) {
     const xla::ReplicaGroup& group = groups[i];
+    // Check consistent replica group size.
     if (group.replica_ids_size() != group_size) {
       return xla::InvalidArgumentStrCat(
-          "Irregular replica group size: Expected ", group_size, ", actual ",
-          group.replica_ids_size());
+          "Inconsistent replica group size: Expected ", group_size, ", actual ",
+          group.replica_ids_size(), "Input replica groups: ", groups_repr);
     }
-
-    for (int64_t j = 0; j < group_size; ++j) {
-      const int64_t expected = j * num_groups + i;
-      const int64_t actual = group.replica_ids(j);
-      if (expected != actual) {
-        return xla::InvalidArgumentStrCat(
-            "Unsupported replica group: Expected ", expected, " at index ", j,
-            ", actual ", actual, ": ", group.DebugString());
-      }
+    // Consistent replica group stride.
+    TF_ASSIGN_OR_RETURN(const int64_t stride, GetReplicaGroupStride(groups[i]));
+    if (stride != group_stride) {
+      return xla::InvalidArgumentStrCat(
+          "Inconsistent replica group stride: Expected ", group_stride, ", actual ",
+          stride, "Input replica groups: ", groups_repr);
     }
   }
 
-  switch (num_groups) {
-    case 1:
-      return Consecutive(group_size);
-    case 2:
-      return Orthogonal(group_size);
+  // Only 3 topologies supported by GCL library: All, Consecutive and Orthogonal.
+  if (num_groups == 1) {
+    // All. TODO: pass zero group size?
+    return PoplarReplicaGroups::Consecutive(group_size);
   }
+  else if (num_groups == 2) {
+    if (group_stride == 1) {
+      // Consecutive groups.
+      return PoplarReplicaGroups::Consecutive(group_size);
+    }
+    if (num_groups == group_stride) {
+      // Orthogonal groups.
+      return PoplarReplicaGroups::Orthogonal(group_size);
+    }
+  }
+  // TODO: more general support than just 2 groups?
   return xla::InvalidArgumentStrCat("Unsupported number of replica groups: ",
                                     num_groups);
 }
@@ -146,6 +157,40 @@ PoplarReplicaGroups::PoplarReplicaGroups(uint64 group_size, Type group_type)
 
 std::ostream& operator<<(std::ostream& oss, const PoplarReplicaGroups& groups) {
   return oss << groups.ToString();
+}
+
+std::string ToString(const xla::ReplicaGroup& group)
+{
+  std::string repr = absl::StrCat("[", absl::StrJoin(group.replica_ids(), ", "), "]");
+  return repr;
+}
+std::string ToString(absl::Span<const xla::ReplicaGroup> groups)
+{
+  std::vector<std::string> repr_groups;
+  repr_groups.reserve(groups.size());
+  for (const auto& group: groups) {
+    repr_groups.push_back(xla::poplarplugin::ToString(group));
+  }
+  std::string repr = absl::StrCat("[", absl::StrJoin(repr_groups, ", "), "]");
+  return repr;
+}
+
+StatusOr<int64_t> GetReplicaGroupStride(const xla::ReplicaGroup& group)
+{
+  const int64_t group_size = group.replica_ids_size();
+  if (group_size <= 1) {
+    // Single element group: stride 1 by default.
+    return 1;
+  }
+  const int64_t group_stride = group.replica_ids(1) - group.replica_ids(0);
+  for (int64_t idx = 0; idx < group_size - 1; ++idx) {
+    // Only consistent stride supporting on IPUs.
+    const int64_t stride = group.replica_ids(idx + 1) - group.replica_ids(idx);
+    if (stride != group_stride) {
+      return xla::InvalidArgumentStrCat("Replica group with inconsistent stride: ", ToString(group));
+    }
+  }
+  return group_stride;
 }
 
 }  // namespace poplarplugin
