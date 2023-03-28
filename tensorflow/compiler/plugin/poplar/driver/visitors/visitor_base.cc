@@ -197,6 +197,17 @@ Status BaseVisitor::HandleAllReduce(HloInstruction* inst) {
   return AddSequenceForInstruction(inst, seq);
 }
 
+Status BaseVisitor::HandleCollectivePermute(HloInstruction* inst) {
+  VLOG(1) << "Processing " << inst->name();
+  const poplar::DebugNameAndId& debug_name_and_id = GetDebugNameAndId(inst);
+  const auto& source_target_pairs = inst->source_target_pairs();
+  TF_ASSIGN_OR_RETURN(auto seq, CreateReplicatedCollectivePermute(
+                                    resources_, inst, GetOutputShape(inst),
+                                    tensor_map, source_target_pairs,
+                                    debug_name_and_id));
+  return AddSequenceForInstruction(inst, seq);
+}
+
 Status BaseVisitor::HandleConstant(HloInstruction* inst) {
   VLOG(1) << "Processing " << inst->name();
 
@@ -259,7 +270,7 @@ Status BaseVisitor::HandleOptimizationBarrier(HloInstruction* inst) {
   // Single input/output tuple.
   CHECK_EQ(output_tensors.size(), 1);
   CHECK_EQ(output_tensors[0].size(), CountShapes(inst->shape()));
-  
+
   // TODO: get a better understanding of this mapping?
   for (size_t i = 0; i < output_tensors[0].size(); i++) {
     DriverTensor out;

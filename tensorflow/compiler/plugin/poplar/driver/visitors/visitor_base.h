@@ -52,6 +52,8 @@ class BaseVisitor : public DfsHloVisitor {
 
   Status HandleAllReduce(HloInstruction* crs) override;
 
+  Status HandleCollectivePermute(HloInstruction* inst) override;
+
   Status HandleConstant(HloInstruction* inst) override;
 
   Status HandleGetTupleElement(HloInstruction* inst) override;
@@ -136,7 +138,6 @@ class BaseVisitor : public DfsHloVisitor {
   UNIMPLEMENTED(HandleCopy)
   UNIMPLEMENTED(HandleIota)
   UNIMPLEMENTED(HandleScatter)
-  UNIMPLEMENTED(HandleCollectivePermute)
   UNIMPLEMENTED(HandleConcatenate)
   UNIMPLEMENTED(HandleGetDimensionSize)
   UNIMPLEMENTED(HandleTriangularSolve)

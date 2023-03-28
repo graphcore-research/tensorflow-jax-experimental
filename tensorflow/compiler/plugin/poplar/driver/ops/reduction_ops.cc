@@ -1028,6 +1028,39 @@ StatusOr<DriverProgramSequence> CreateReplicatedAllReduce(
   return seq;
 }
 
+StatusOr<DriverProgramSequence> CreateReplicatedCollectivePermute(
+    CompilerResources& res, const HloInstruction* inst,
+    const xla::Shape& output_shape, TensorMap& tensor_map,
+    const std::vector<std::pair<int64_t, int64_t>>& source_target_pairs,
+    const poplar::DebugNameAndId& debug_name_and_id)
+{
+  auto& graph = GetGraph(res, inst);
+  DriverProgramSequence seq(debug_name_and_id);
+  // Find the input tensor.
+  TF_ASSIGN_OR_RETURN(
+      poplar::Tensor input,
+      FindInstructionInput(tensor_map, res, inst, 0, seq, debug_name_and_id));
+  // No replica => no need to perform the copy.
+  if (res.replication_factor <= 1) {
+    TF_CHECK_OK(
+      AddOutputTensor(tensor_map, inst, 0, DriverTensor(input)));
+    return seq;
+  }
+  // Replica map format expected by poplar.
+  std::map<unsigned, unsigned> replica_map;
+  for (const auto& source_target : source_target_pairs) {
+    replica_map[source_target.first] = source_target.second;
+  }
+  // TODO: support the case of incomplete permutation.
+  auto output = graph.clone(input, {debug_name_and_id});
+  seq.add(
+    poplar::program::CrossReplicaCopy(input, output, replica_map, {debug_name_and_id})
+  );
+  TF_CHECK_OK(
+    AddOutputTensor(tensor_map, inst, 0, DriverTensor(output)));
+  return seq;
+}
+
 StatusOr<DriverProgramSequence> CreateReplicatedAllToAll(
     CompilerResources& res, const HloInstruction* inst,
     const xla::Shape& output_shape, TensorMap& tensor_map,

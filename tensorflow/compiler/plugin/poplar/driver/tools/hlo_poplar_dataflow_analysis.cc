@@ -417,6 +417,12 @@ class DataflowAnalysisBufferVisitor : public DfsHloVisitorWithDefault {
         inst, /*kind=*/BufferUseKind::USE_ALIAS_READ_WRITE);
   }
 
+  Status HandleCollectivePermute(HloInstruction* inst) override {
+    // Same as AllReduce operation.
+    return HandleInplaceForwardAllBuffers(
+        inst, /*kind=*/BufferUseKind::USE_ALIAS_READ_WRITE);
+  }
+
   Status HandleSort(HloInstruction* inst) override {
     return HandleInplaceForwardAllBuffers(
         inst, /*kind=*/BufferUseKind::USE_ALIAS_READ_WRITE);

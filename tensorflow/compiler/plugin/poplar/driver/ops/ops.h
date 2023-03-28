@@ -289,6 +289,12 @@ StatusOr<DriverProgramSequence> CreateReplicatedAllReduce(
     const gcl::CollectiveOperator op,
     const poplar::DebugNameAndId& debug_name_and_id);
 
+StatusOr<DriverProgramSequence> CreateReplicatedCollectivePermute(
+    CompilerResources& res, const HloInstruction* inst,
+    const xla::Shape& output_shape, TensorMap& tensor_map,
+    const std::vector<std::pair<int64_t, int64_t>>& source_target_pairs,
+    const poplar::DebugNameAndId& debug_name_and_id);
+
 StatusOr<DriverProgramSequence> CreateReplicatedAllToAll(
     CompilerResources& res, const HloInstruction* inst,
     const xla::Shape& output, TensorMap& tensor_map,

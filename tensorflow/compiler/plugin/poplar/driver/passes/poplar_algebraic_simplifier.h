@@ -98,6 +98,8 @@ class PoplarAlgebraicSimplifierVisitor : public DfsHloRewriteVisitor {
 
   Status HandleBroadcast(HloInstruction* broadcast) override;
 
+  Status HandleCollectivePermute(HloInstruction* collective_permute) override;
+
   Status HandleCompare(HloInstruction* compare) override;
 
   Status HandleConcatenate(HloInstruction* concatenate) override;

@@ -434,6 +434,11 @@ Status PoplarAlgebraicSimplifierVisitor::HandleCopy(HloInstruction* copy) {
   return Status::OK();
 }
 
+Status PoplarAlgebraicSimplifierVisitor::HandleCollectivePermute(HloInstruction* collective_permute) {
+  // TODO: algebraic simplification?
+  return Status::OK();
+}
+
 // Concatenate same slices can be replaced by broadcast + reshape
 //            +-------------+
 //            |   Operand   |
@@ -1947,7 +1952,7 @@ Status PoplarAlgebraicSimplifierVisitor::HandleBroadcast(
   // A broadcast of a reshape which merely inserts 1-sized dimensions can
   // elide its operand.
   {
-    std::optional<ShapeUtil::ShapeEqualityDescriptor> reshape_degenerate = 
+    std::optional<ShapeUtil::ShapeEqualityDescriptor> reshape_degenerate =
         operand->ReshapeMerelyInsertsOrDeletes1SizedDimensions();
     if (reshape_degenerate.has_value() &&
         reshape_degenerate->deleted_dimensions.empty()) {

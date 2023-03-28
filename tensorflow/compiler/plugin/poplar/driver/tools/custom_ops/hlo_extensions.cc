@@ -466,6 +466,7 @@ REGISTER_HLO_INST_EXTENSIONS(kScatter, RegisterInplaceRWOperand0Extension);
 
 // Inplace on all operands.
 REGISTER_HLO_INST_EXTENSIONS(kAllReduce, RegisterInplaceRWAllOperandsExtension);
+REGISTER_HLO_INST_EXTENSIONS(kCollectivePermute, RegisterInplaceRWAllOperandsExtension);
 REGISTER_HLO_INST_EXTENSIONS(kMap, RegisterInplaceRWAllOperandsExtension);
 REGISTER_HLO_INST_EXTENSIONS(kSort, RegisterInplaceRWAllOperandsExtension);
 REGISTER_HLO_INST_EXTENSIONS(kTuple, [](HloOpcode opcode) {

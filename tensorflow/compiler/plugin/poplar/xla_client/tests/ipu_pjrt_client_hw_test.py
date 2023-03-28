@@ -281,6 +281,27 @@ class IpuPjrtClientExecutableHwTest(parameterized.TestCase):
       for id in group:
         npt.assert_array_almost_equal(outputs[id][0], expected_output)
 
+  def testIpuPjRtclientHw__executable_multi_ipus__collective_permute(self):
+    # NOTE: good to test different IPU meshes in tests, to catch weird bugs!
+    device_ids = [[0], [1], [2], [3]]
+    num_devices = np.array(device_ids).size
+    source_target_pairs = [(0, 1), (1, 2), (2, 3), (3, 0)]
+    compile_opts = make_compile_options(device_ids)
+    arg0 = np.array([10, -2, 1.5], dtype=np.float32)
+
+    c = xla_client.XlaBuilder(self.id())
+    p0 = ops.Parameter(c, 0, xla_client.shape_from_pyval(arg0))
+    ops.CollectivePermute(p0, source_target_pairs)
+    executable = self.backend.compile(c.build(), compile_opts)
+
+    # Different data on every IPU.
+    inputs = [[arg0 * (idx + 1)] for idx in range(num_devices)]
+    outputs = xla_client.execute_with_python_values_replicated(
+        executable, inputs, self.backend
+    )
+    for id in range(num_devices):
+      npt.assert_array_equal(outputs[(id + 1) % num_devices][0], inputs[id][0])
+
 
 if __name__ == "__main__":
   absltest.main()

@@ -66,6 +66,7 @@ class ValuesIdenticalAcrossReplicasVisitor
   Status HandleConditional(const HloInstruction* inst) override;
   Status HandleCustomCall(const HloInstruction* inst) override;
   Status HandleAllReduce(const HloInstruction* inst) override;
+  Status HandleCollectivePermute(const HloInstruction* inst) override;
   Status HandleFusion(const HloInstruction* inst) override;
   Status HandleGetTupleElement(const HloInstruction* inst) override;
   Status HandleTuple(const HloInstruction* inst) override;

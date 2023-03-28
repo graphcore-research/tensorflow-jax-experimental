@@ -278,6 +278,12 @@ Status ValuesIdenticalAcrossReplicasVisitor::HandleAllReduce(
                                                        reduce_all_replicas);
 }
 
+Status ValuesIdenticalAcrossReplicasVisitor::HandleCollectivePermute(
+    const HloInstruction* inst) {
+  // No reason to have identical values across replicas after permuting.
+  return SetAllInstructionValuesToIdenticalOrDiffering(inst, /*identical=*/false);
+}
+
 Status ValuesIdenticalAcrossReplicasVisitor::HandleFusion(
     const HloInstruction* inst) {
   if (IsPopOpsFusion(inst, "wide_const")) {
