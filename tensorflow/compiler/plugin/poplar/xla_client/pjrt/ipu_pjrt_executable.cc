@@ -652,13 +652,16 @@ IpuPjRtExecutable::ExecuteOnHost(
   TF_ASSIGN_OR_RETURN(
       auto res_host_buffers,
       m_host_executable->Execute({in_host_buffers}, options, returned_futures));
+  // Single host device (for now!)
+  const std::size_t replica = 0;
+  auto& replica_host_buffers = res_host_buffers[replica];
 
   // Wrap result buffers as IPU buffers.
   std::vector<std::unique_ptr<PjRtBuffer>> res_ipu_buffers;
-  res_ipu_buffers.reserve(res_host_buffers.size());
-  for (std::size_t i = 0; i < res_host_buffers.size(); ++i) {
+  res_ipu_buffers.reserve(replica_host_buffers.size());
+  for (std::size_t i = 0; i < replica_host_buffers.size(); ++i) {
     auto res_buffer = IpuPjRtBuffer::CreateIpuBufferOnHost(
-        std::move(res_host_buffers[0][i]), m_devices[0]);
+        std::move(replica_host_buffers[i]), m_devices[0]);
     res_ipu_buffers.push_back(std::move(res_buffer));
   }
   std::vector<std::vector<std::unique_ptr<PjRtBuffer>>> result;
