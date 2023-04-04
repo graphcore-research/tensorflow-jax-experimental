@@ -31,6 +31,7 @@ from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client import (
 )
 
 ops = xla_client.ops
+xe = xla_client._xla
 
 # Skipping some tests if no local IPU hardware.
 ipu_hw_available = IpuDeviceMeshManager.has_local_ipu_hardware()
@@ -270,7 +271,7 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     del cls.backend
     gc.collect()
 
-  def testIpuPjRtclient__executable__successful_compilation(self):
+  def testIpuPjRtclient__executable__successful_xla_compilation(self):
     c = xla_client.XlaBuilder(self.id())
     arg0 = np.array([10, 15, -2, 7], dtype=np.float32)
     p0 = ops.Parameter(c, 0, xla_client.shape_from_pyval(arg0))
@@ -280,6 +281,30 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     self.assertIsNone(executable.fingerprint)
     self.assertEqual(executable.client.platform, "ipu")
     self.assertEqual(executable.local_devices(), self.backend.devices())
+
+  def testIpuPjRtclient__executable__successful_mlir_compilation_and_run(self):
+    mlir_module = """
+    module @jit_fn0.0 {
+      func.func public @main(%arg0: tensor<2xf32>) -> tensor<2xf32> {
+        %0 = mhlo.multiply %arg0, %arg0 : tensor<2xf32>
+        return %0 : tensor<2xf32>
+      }
+    }
+    """
+    c = xe.mlir.mlir_module_to_xla_computation(mlir_module, use_tuple_args=False)
+    executable = self.backend.compile(c)
+
+    self.assertIsInstance(executable, xla_extension.Executable)
+    self.assertIsNone(executable.fingerprint)
+    self.assertEqual(executable.client.platform, "ipu")
+    self.assertEqual(executable.local_devices(), self.backend.devices())
+
+    arg0 = np.array([-2, 7], dtype=np.float32)
+    outputs = xla_client.execute_with_python_values(
+        executable, [arg0], backend=self.backend
+    )
+    self.assertEqual(len(outputs), 1)
+    np.testing.assert_equal(outputs[0], arg0 * arg0)
 
   @parameterized.parameters([
       [np.array(5, dtype=np.float32)],  # IPU XLA compiler optimizing to HOST.
@@ -342,6 +367,124 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     )
     self.assertEqual(len(outputs), 1)
     npt.assert_equal(outputs[0], arg0[1:3])
+
+  def testIpuPjRtclient__donated_arguments__successful_compilation(self):
+    mlir_module = """
+    module @jit_fn.1 {
+      func.func public @main(%arg0: tensor<2xf32> {tf.aliasing_output = 0 : i32}, %arg1: tensor<2xf32>) -> (tensor<2xf32>, tensor<2xf32>) {
+        %0 = mhlo.add %arg0, %arg1 : tensor<2xf32>
+        %1 = mhlo.subtract %arg0, %arg1 : tensor<2xf32>
+        return %0, %1 : tensor<2xf32>, tensor<2xf32>
+      }
+    }
+    """
+    c = xe.mlir.mlir_module_to_xla_computation(mlir_module, use_tuple_args=False)
+    self.backend.compile(c)
+
+  def testIpuPjRtclient__donated_arguments__successful_multi_runs(self):
+    mlir_module = """
+    module @jit_fn.1 {
+      func.func public @main(%arg0: tensor<2xf32>, %arg1: tensor<2xf32> {tf.aliasing_output = 1 : i32}) -> (tensor<2xf32>, tensor<2xf32>) {
+        %0 = mhlo.add %arg0, %arg1 : tensor<2xf32>
+        %1 = mhlo.multiply %arg0, %arg1 : tensor<2xf32>
+        return %0, %1 : tensor<2xf32>, tensor<2xf32>
+      }
+    }
+    """
+    c = xe.mlir.mlir_module_to_xla_computation(mlir_module, use_tuple_args=False)
+    executable = self.backend.compile(c)
+
+    data0 = np.array([-2, 7], dtype=np.float32)
+    data1 = np.array([10, 15], dtype=np.float32)
+    buf0 = self.backend.buffer_from_pyval(data0)
+    buf1 = self.backend.buffer_from_pyval(data1)
+    # Proper first streaming of data to IPU.
+    out0, out1 = executable.execute([buf0, buf1])
+    # Original inputs on host => not deleted.
+    self.assertFalse(buf0.is_deleted())
+    self.assertFalse(buf1.is_deleted())
+    # Check result streamed back to HOST.
+    npt.assert_array_equal(out0, data0 + data1)
+    # Check result on SRAM can be streamed back.
+    out1_data = np.array(out1, copy=True)
+    npt.assert_array_equal(out1_data, data0 * data1)
+    # Should not be deleted in we ask sync. with HOST!
+    self.assertFalse(out1.is_deleted())
+
+    # Second run: should be re-using value already on IPU SRAM.
+    out20, out21 = executable.execute([out0, out1])
+    # Check input buffers status: donated buffer should have been deleted.
+    # TODO: check buffers status & location.
+    self.assertFalse(out0.is_deleted())
+    self.assertTrue(out1.is_deleted())
+    # Check result streamed back to HOST.
+    self.assertFalse(out20.is_deleted())
+    self.assertFalse(out21.is_deleted())
+    npt.assert_array_equal(out20, data0 + data1 + (data0 * data1))
+    npt.assert_array_equal(out21, (data0 + data1) * (data0 * data1))
+    # Should not be deleted in we ask sync. with HOST!
+    self.assertFalse(out21.is_deleted())
+
+  def testIpuPjRtclient__donated_arguments__multi_executables(self):
+    mlir_module = """
+    module @jit_fn.1 {
+      func.func public @main(%arg0: tensor<2xf32>, %arg1: tensor<2xf32> {tf.aliasing_output = 1 : i32}) -> (tensor<2xf32>, tensor<2xf32>) {
+        %0 = mhlo.add %arg0, %arg1 : tensor<2xf32>
+        %1 = mhlo.multiply %arg0, %arg1 : tensor<2xf32>
+        return %0, %1 : tensor<2xf32>, tensor<2xf32>
+      }
+    }
+    """
+    c = xe.mlir.mlir_module_to_xla_computation(mlir_module, use_tuple_args=False)
+    executable0 = self.backend.compile(c)
+    executable1 = self.backend.compile(c)
+
+    data0 = np.array([-2, 7], dtype=np.float32)
+    data1 = np.array([10, 15], dtype=np.float32)
+    buf0 = self.backend.buffer_from_pyval(data0)
+    buf1 = self.backend.buffer_from_pyval(data1)
+    # First executable called.
+    out00, out01 = executable0.execute([buf0, buf1])
+    npt.assert_array_equal(out00, data0 + data1)
+
+    # Second executable called.
+    out10, out11 = executable1.execute([buf0, out00])
+    npt.assert_array_equal(out10, data0 + (data0 + data1))
+    # First on-device buffer should be deleted (even if not directly used/overwritten).
+    self.assertTrue(out01.is_deleted())
+    self.assertFalse(out11.is_deleted())
+    npt.assert_array_equal(out11, data0 * (data0 + data1))
+
+  def testIpuPjRtclient__donated_arguments__multi_inputs_outputs(self):
+    mlir_module = """
+    module @jit_fn.1 {
+      func.func public @main(%arg0: tensor<2xf32> {tf.aliasing_output = 1 : i32}, %arg1: tensor<2xf32> {tf.aliasing_output = 2 : i32}) -> (tensor<2xf32>, tensor<2xf32>, tensor<2xf32>) {
+        %0 = mhlo.add %arg0, %arg1 : tensor<2xf32>
+        %1 = mhlo.subtract %arg0, %arg1 : tensor<2xf32>
+        %2 = mhlo.multiply %arg0, %arg1 : tensor<2xf32>
+        return %0, %1, %2 : tensor<2xf32>, tensor<2xf32>, tensor<2xf32>
+      }
+    }
+    """
+    c = xe.mlir.mlir_module_to_xla_computation(mlir_module, use_tuple_args=False)
+    executable = self.backend.compile(c)
+
+    data0 = np.array([-2, 7], dtype=np.float32)
+    data1 = np.array([10, 15], dtype=np.float32)
+    buf0 = self.backend.buffer_from_pyval(data0)
+    buf1 = self.backend.buffer_from_pyval(data1)
+    # Proper first streaming of data to IPU.
+    out00, out01, out02 = executable.execute([buf0, buf1])
+    npt.assert_array_equal(out00, data0 + data1)
+    npt.assert_array_equal(out01, data0 - data1)
+    npt.assert_array_equal(out02, data0 * data1)
+
+    out10, out11, out12 = executable.execute([buf0, out02])
+    self.assertTrue(out01.is_deleted())
+    self.assertTrue(out02.is_deleted())
+    self.assertFalse(out11.is_deleted())
+    self.assertFalse(out12.is_deleted())
+    npt.assert_array_equal(out10, data0 + (data0 * data1))
 
 
 if __name__ == "__main__":

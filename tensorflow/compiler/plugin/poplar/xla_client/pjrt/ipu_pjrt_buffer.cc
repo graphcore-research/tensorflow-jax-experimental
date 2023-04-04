@@ -15,21 +15,60 @@ limitations under the License.
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_buffer.h"
 
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_client.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_executable.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/utils.h"
 
 namespace xla {
 namespace poplarplugin {
 
+IpuPjRtBufferLocation IpuBufferLocationFromIOType(
+    InputOutputAliasingMap::InputInfo::Type iotype) noexcept {
+  using InType = InputOutputAliasingMap::InputInfo::Type;
+  switch (iotype) {
+    case InType::StreamedVariable:
+      return IpuPjRtBufferLocation::HOST;
+    case InType::ResourceModified:
+      return IpuPjRtBufferLocation::SRAM;
+    case InType::ResourceNotModified:
+      return IpuPjRtBufferLocation::SRAM;
+  }
+  return IpuPjRtBufferLocation::UNKNOWN;
+}
+IpuPjRtBufferLocation IpuBufferLocationFromIOType(
+    InputOutputAliasingMap::OutputInfo::Type iotype) noexcept {
+  using OutType = InputOutputAliasingMap::OutputInfo::Type;
+  switch (iotype) {
+    case OutType::StreamedVariable:
+      return IpuPjRtBufferLocation::HOST;
+    case OutType::ResourceModified:
+      return IpuPjRtBufferLocation::SRAM;
+    case OutType::ResourceOutputOnly:
+      return IpuPjRtBufferLocation::SRAM;
+  }
+  return IpuPjRtBufferLocation::UNKNOWN;
+}
+
+IpuPjRtBufferStatus::IpuPjRtBufferStatus(
+    IpuPjRtBufferLocation location) noexcept
+    : m_location{location}, m_on_device_expired{false} {
+  // Host or unknown located buffer => on device expired.
+  if (m_location == IpuPjRtBufferLocation::HOST ||
+      m_location == IpuPjRtBufferLocation::UNKNOWN) {
+    this->MarkOnDeviceExpired();
+  }
+}
+
 IpuPjRtBuffer::IpuPjRtBuffer() {}
-IpuPjRtBuffer::~IpuPjRtBuffer() {}
+IpuPjRtBuffer::~IpuPjRtBuffer() {
+  // Always mark on device expired, in case other buffer tries access it.
+  status()->MarkOnDeviceExpired();
+}
 
 const Shape& IpuPjRtBuffer::on_device_shape() const {
-  // HOST buffer -> use the device shape from it.
-  if (m_location == IpuPjRtBufferLocation::HOST) {
-    CHECK_NOTNULL(m_buffer);
-    return m_buffer->on_device_shape();
-  }
-  // Other locations: not yet supported.
-  throw std::runtime_error("Not implemented `on_device_shape` on IPU.");
+  // HOST buffer should always have proper shape, equivalent to IPU.
+  // TODO: using specific `m_device_shape` in case HOST buffer differ?
+  CHECK_NOTNULL(m_host_buffer.get());
+  return m_host_buffer->on_device_shape();
 }
 
 StatusOr<Shape> IpuPjRtBuffer::logical_on_device_shape() {
@@ -41,12 +80,23 @@ PjRtClient* IpuPjRtBuffer::client() const { return m_device->client(); }
 
 StatusOr<std::unique_ptr<PjRtBuffer::ExternalReference>>
 IpuPjRtBuffer::AcquireExternalReference() {
-  // HOST buffer -> use existing implementation.
-  if (m_location == IpuPjRtBufferLocation::HOST) {
-    CHECK_NOTNULL(m_buffer);
-    return m_buffer->AcquireExternalReference();
+  // Already synchronized host buffer.
+  if (IsHostBufferSync()) {
+    return m_host_buffer->AcquireExternalReference();
   }
-  return Unimplemented("Not implemented `AcquireExternalReference` on IPU.");
+  const auto location = this->location();
+  if (location != IpuPjRtBufferLocation::SRAM) {
+    return Unimplemented(
+        "Unsupported IPU buffer location for `AcquireExternalReference`.");
+  }
+  // Try synchronize SRAM on-device buffer.
+  CHECK_NOTNULL(m_run_outputs_ref.get());
+  // TODO: first check expire status, or executable ptr.
+  TF_RETURN_IF_ERROR(m_run_outputs_ref->executable->CopyDeviceToHostBuffers(
+      m_run_outputs_ref.get()));
+  MarkHostBufferSynchronized();
+  // Now can acquire external reference on host buffer!
+  return m_host_buffer->AcquireExternalReference();
 }
 
 PjRtFuture<Status> IpuPjRtBuffer::ToLiteral(MutableLiteralBase* literal) {
@@ -54,26 +104,23 @@ PjRtFuture<Status> IpuPjRtBuffer::ToLiteral(MutableLiteralBase* literal) {
 }
 
 StatusOr<size_t> IpuPjRtBuffer::GetOnDeviceSizeInBytes() const {
-  // HOST buffer -> use existing implementation.
-  if (m_location == IpuPjRtBufferLocation::HOST) {
-    CHECK_NOTNULL(m_buffer);
-    return m_buffer->GetOnDeviceSizeInBytes();
-  }
-  return Unimplemented("Not implemented `GetOnDeviceSizeInBytes` on IPU.");
+  // Size on host and IPU should coincide.
+  CHECK_NOTNULL(m_host_buffer);
+  return m_host_buffer->GetOnDeviceSizeInBytes();
 }
 
 PjRtFuture<Status> IpuPjRtBuffer::CopyRawToHost(void* dst, int64_t offset,
                                                 int64_t transfer_size) {
+  // TODO: support on IPU host buffers?
   throw std::runtime_error("Not implemented `CopyRawToHost` on IPU.");
 }
 
 void IpuPjRtBuffer::Delete() {
-  // HOST buffer -> use existing implementation.
-  if (m_location == IpuPjRtBufferLocation::HOST) {
-    CHECK_NOTNULL(m_buffer);
-    return m_buffer->Delete();
-  }
-  throw std::runtime_error("Not implemented `Delete` on IPU.");
+  // Rely on HOST buffer logic to control deleting buffer.
+  CHECK_NOTNULL(m_host_buffer);
+  m_host_buffer->Delete();
+  // Make sure we mark on device expired too.
+  status()->MarkOnDeviceExpired();
 }
 
 StatusOr<std::unique_ptr<PjRtBuffer::ExternalReference>>
@@ -84,24 +131,37 @@ IpuPjRtBuffer::ReleaseDeviceMemoryOwnership(
 }
 
 bool IpuPjRtBuffer::IsDeleted() {
-  // HOST buffer -> use existing implementation.
-  if (m_location == IpuPjRtBufferLocation::HOST) {
-    CHECK_NOTNULL(m_buffer);
-    return m_buffer->IsDeleted();
+  CHECK_NOTNULL(m_host_buffer.get());
+  const bool is_host_deleted = m_host_buffer->IsDeleted();
+  const auto location = this->status()->location();
+  if (location == IpuPjRtBufferLocation::HOST) {
+    // Rely fully on HOST buffer logic.
+    return is_host_deleted;
+  } else if (location == IpuPjRtBufferLocation::SRAM) {
+    const bool is_on_device_expired = status()->IsOnDeviceExpired();
+    // Is buffer deleted: host or on device.
+    const bool is_deleted = is_host_deleted || is_on_device_expired;
+    // TODO: take host synchronization into account?
+    if (is_on_device_expired && !is_host_deleted) {
+      // Delete host buffer.
+      m_host_buffer->Delete();
+    }
+    return is_deleted;
   }
-  throw std::runtime_error("Not implemented `IsDeleted` on IPU.");
+  throw std::runtime_error(
+      "Not implemented `IsDeleted` on IPU for DRAM buffers.");
 }
 
 StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtBuffer::CopyToDevice(
     PjRtDevice* dst_device) {
   // Buffer not on the HOST => transfer not supported.
-  if (m_location != IpuPjRtBufferLocation::HOST) {
+  if (location() != IpuPjRtBufferLocation::HOST) {
     return Unimplemented(
         "`CopyToDevice` not implemented for IPU buffers not located on the "
         "host.");
   }
   // Need host buffer!
-  CHECK_NOTNULL(m_buffer);
+  CHECK_NOTNULL(m_host_buffer);
   // NOTE: following CPU client convention. TODO, support?
   if (dst_device == m_device) {
     return InvalidArgument(
@@ -119,8 +179,10 @@ StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtBuffer::CopyToDevice(
   TF_ASSIGN_OR_RETURN(
       auto host_buffer_hold,
       this->GetHostBufferWithHold(TfrtCpuBuffer::ScopedHold::Type::kUsage));
-  return IpuPjRtBuffer::CreateIpuBufferOnHost(
-      this->on_device_shape(), host_buffer_hold.buffer(), dst_device);
+  // No executable if buffer on host.
+  return IpuPjRtBuffer::CreateIpuBuffer(
+      this->on_device_shape(), host_buffer_hold.buffer(),
+      IpuPjRtBufferLocation::HOST, dst_device, nullptr);
 }
 
 using RemoteSendCallback =
@@ -139,41 +201,56 @@ void IpuPjRtBuffer::CopyToRemoteDeviceScattered(
 }
 
 PjRtFuture<Status> IpuPjRtBuffer::GetReadyFuture() {
-  // HOST buffer -> use existing implementation.
-  if (m_location == IpuPjRtBufferLocation::HOST) {
-    CHECK_NOTNULL(m_buffer);
-    return m_buffer->GetReadyFuture();
-  }
-  // Other locations: not yet supported.
-  throw std::runtime_error("Not implemented `GetReadyFuture` on IPU.");
+  // Rely on HOST buffer for async. events / ready future.
+  CHECK_NOTNULL(m_host_buffer);
+  return m_host_buffer->GetReadyFuture();
 }
 
 bool IpuPjRtBuffer::IsOnCpu() const {
-  return m_location == IpuPjRtBufferLocation::HOST;
+  // As we always keep an equivalent host allocated buffer, always considered
+  // as being located on CPU. Avoid additional host copy, as Numpy (or other)
+  // can directly acquire reference of internal host buffer.
+  return true;
 }
 
-std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBufferOnHost(
-    std::unique_ptr<PjRtBuffer> cpu_buffer, PjRtDevice* device) {
-  std::unique_ptr<IpuPjRtBuffer> buffer = std::make_unique<IpuPjRtBuffer>();
+std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBuffer(
+    std::unique_ptr<PjRtBuffer> cpu_buffer, IpuPjRtBufferLocation location,
+    PjRtDevice* device, IpuPjRtExecutable* executable) {
+  // TODO: deprecate this function.
+  return CreateIpuBuffer(unique_down_cast<TfrtCpuBuffer>(std::move(cpu_buffer)),
+                         location, device, executable);
+}
+
+std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBuffer(
+    std::unique_ptr<TfrtCpuBuffer> cpu_buffer, IpuPjRtBufferLocation location,
+    PjRtDevice* device, IpuPjRtExecutable* executable) {
+  // A couple of initial checks.
   CHECK_NOTNULL(device);
   CHECK_NOTNULL(cpu_buffer.get());
-  buffer->m_location = IpuPjRtBufferLocation::HOST;
+  CHECK(location != IpuPjRtBufferLocation::UNKNOWN);
+  CHECK(location != IpuPjRtBufferLocation::DRAM);
+  // Build wrapping IPU buffer.
+  std::unique_ptr<IpuPjRtBuffer> buffer = std::make_unique<IpuPjRtBuffer>();
+  buffer->m_status = std::make_shared<IpuPjRtBufferStatus>(location);
   buffer->m_device = device;
-  buffer->m_buffer = std::move(cpu_buffer);
+  buffer->m_host_buffer = std::move(cpu_buffer);
+  // Keep executable only if not host buffer.
+  if (location != IpuPjRtBufferLocation::HOST) {
+    CHECK_NOTNULL(executable);
+    buffer->m_executable = executable;
+  } else {
+    buffer->m_executable = nullptr;
+  }
+  // By default, always assume SRAM/DRAM buffers not synced.
+  buffer->m_is_host_buffer_sync = false;
   return buffer;
 }
 
-std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBufferOnHost(
-    std::unique_ptr<TfrtCpuBuffer> cpu_buffer, PjRtDevice* device) {
-  // TODO: refactor to use TfrtCpuBuffer pointer internally.
-  return CreateIpuBufferOnHost(
-      std::unique_ptr<PjRtBuffer>{cpu_buffer.release()}, device);
-}
-
-std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBufferOnHost(
+std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBuffer(
     const Shape& shape,
     std::shared_ptr<TrackedTfrtCpuDeviceBuffer> tracked_host_buffer,
-    PjRtDevice* device) {
+    IpuPjRtBufferLocation location, PjRtDevice* device,
+    IpuPjRtExecutable* executable) {
   // CPU client & device.
   auto ipu_client = tensorflow::down_cast<IpuPjRtClient*>(device->client());
   TfrtCpuClient* cpu_client = ipu_client->cpu_client();
@@ -182,21 +259,38 @@ std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBufferOnHost(
   auto host_buffer = std::make_unique<TfrtCpuBuffer>(
       shape, std::move(tracked_host_buffer), cpu_client, cpu_device);
   // IPU buffer, wrapping the host one.
-  return CreateIpuBufferOnHost(std::move(host_buffer), device);
+  return CreateIpuBuffer(std::move(host_buffer), location, device, executable);
 }
 
-StatusOr<TfrtCpuBuffer*> IpuPjRtBuffer::GetHostBuffer() {
-  if (m_location != IpuPjRtBufferLocation::HOST) {
+StatusOr<TfrtCpuBuffer*> IpuPjRtBuffer::GetHostBuffer(bool allow_unsync) {
+  const bool allowed = allow_unsync || IsHostBufferSync();
+  if (!allowed) {
     return InvalidArgument(
-        "Can not extract host buffer from IPU buffer: location is not HOST.");
+        "Can not return HOST buffer from an IPU buffer not synchronized with "
+        "host.");
   }
-  return tensorflow::down_cast<TfrtCpuBuffer*>(m_buffer.get());
+  return m_host_buffer.get();
 }
 
 StatusOr<TfrtCpuBuffer::ScopedHold> IpuPjRtBuffer::GetHostBufferWithHold(
-    TfrtCpuBuffer::ScopedHold::Type type) {
-  TF_ASSIGN_OR_RETURN(TfrtCpuBuffer * buffer, this->GetHostBuffer());
+    TfrtCpuBuffer::ScopedHold::Type type, bool allow_unsync) {
+  TF_ASSIGN_OR_RETURN(TfrtCpuBuffer * buffer,
+                      this->GetHostBuffer(allow_unsync));
   return buffer->GetBufferWithHold(type);
+}
+
+void IpuPjRtBuffer::AsHostOrDelete() {
+  if (location() == IpuPjRtBufferLocation::HOST) {
+    // Nothing to do!
+  } else if (this->IsHostBufferSync()) {
+    // Convert to host buffer.
+    // TODO: should we wait for events/ready status?
+    // m_location = IpuPjRtBufferLocation::HOST;
+    throw std::runtime_error("Unsupported");
+  } else {
+    // Default: not synced, just delete the buffer.
+    this->Delete();
+  }
 }
 
 StatusOr<std::shared_ptr<MaybeOwningCpuMemory>> CreateRawHostBuffer(

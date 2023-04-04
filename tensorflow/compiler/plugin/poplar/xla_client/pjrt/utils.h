@@ -15,6 +15,8 @@ limitations under the License.
 #pragma once
 #include <atomic>
 
+#include "tensorflow/core/platform/default/casts.h"
+
 namespace xla {
 namespace poplarplugin {
 
@@ -35,6 +37,14 @@ class AtomicCounter {
  private:
   std::atomic<CountType> m_counter;
 };
+
+/**
+ * @brief Downcast a unique pointer.
+ */
+template <typename T, typename S>
+std::unique_ptr<T> unique_down_cast(std::unique_ptr<S> ptr) noexcept {
+  return std::unique_ptr<T>(tensorflow::down_cast<T*>(ptr.release()));
+}
 
 }  // namespace poplarplugin
 }  // namespace xla

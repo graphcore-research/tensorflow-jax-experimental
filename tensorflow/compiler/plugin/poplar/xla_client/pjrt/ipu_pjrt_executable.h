@@ -18,6 +18,7 @@ limitations under the License.
 
 #include "tensorflow/compiler/plugin/poplar/driver/poplar_executable.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_device_mesh.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_buffer.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
 #include "tensorflow/compiler/xla/pjrt/tfrt_cpu_pjrt_client.h"
@@ -27,6 +28,7 @@ namespace poplarplugin {
 
 class PoplarExecutable;
 class IpuPjRtClient;
+class IpuPjRtExecutable;
 
 /** Get the underlying Poplar executable from an IPU PjRt SE executable. */
 PoplarExecutable* GetPoplarExecutable(PjRtStreamExecutorExecutable* executable);
@@ -53,7 +55,9 @@ struct IpuPjRtExecutableRunInfo {
   int executable_id = 0;
   /** Run id, assigned by the client. */
   int run_id = 0;
-  // TODO: status future.
+
+  /** (Optional) reference to run outputs */
+  std::shared_ptr<IpuPjRtRunOutputsRef> outputs_ref{nullptr};
 };
 
 /**
@@ -74,6 +78,10 @@ struct IpuPjRtRunReplicaInputs {
 
   /** Connect input stream callbacks. TODO: const method. */
   void ConnectStreamCallbacks(
+      const std::vector<InputOutputAliasingMap::InputInfo>& input_infos,
+      int replica, poplar::Engine* engine);
+  /** Connect input donated buffers. TODO: const method. */
+  void ConnectStreamDonatedBuffers(
       const std::vector<InputOutputAliasingMap::InputInfo>& input_infos,
       int replica, poplar::Engine* engine);
 };
@@ -100,7 +108,8 @@ struct IpuPjRtRunReplicaOutputs {
    */
   std::vector<std::unique_ptr<PjRtBuffer>> CreateIpuPjRtBuffers(
       const tfrt::AsyncValueRef<CpuEvent>& execute_event,
-      PjRtDevice* ipu_device) const;
+      const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
+      PjRtDevice* ipu_device, IpuPjRtExecutable* executable) const;
 
   /** Connect output stream callbacks. TODO: const method. */
   void ConnectStreamCallbacks(
@@ -156,8 +165,45 @@ struct IpuPjRtRunState {
    * @brief Create wrapping IPU PjRt output buffers.
    */
   std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>
-  CreateOutputIpuPjRtBuffers(const tfrt::AsyncValueRef<CpuEvent>& execute_event,
-                             std::vector<PjRtDevice*> ipu_devices) const;
+  CreateOutputIpuPjRtBuffers(
+      const tfrt::AsyncValueRef<CpuEvent>& execute_event,
+      const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
+      std::vector<PjRtDevice*> ipu_devices,
+      IpuPjRtExecutable* executable) const;
+};
+
+/**
+ * @brief Reference to all outputs of an IPU executable run.
+ *
+ * This data structure is useful to share a common reference between
+ * all buffer resulting from the same run, in case on-device SRAM buffers
+ * are synchronized back with host.
+ */
+struct IpuPjRtRunOutputsRef {
+  // Reference to a buffer + shared ref status.
+  struct BufferAndStatusPtrs {
+    IpuPjRtBuffer* buffer{nullptr};
+    std::shared_ptr<IpuPjRtBufferStatus> status{nullptr};
+  };
+  /** IPU executable generating the run. */
+  // FIXME: what happens if executable is deleted before buffers?
+  IpuPjRtExecutable* executable{nullptr};
+  // TODO: add PjRt future status?
+  /** Output buffers [replicas, num_outputs]. */
+  std::vector<std::vector<BufferAndStatusPtrs>> output_buffers;
+
+  /**
+   * @brief Create run output ref instance from buffers, and assign
+   * it to the collection of buffers.
+   */
+  static StatusOr<std::shared_ptr<IpuPjRtRunOutputsRef>> CreateAndAssign(
+      const std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>& out_buffers,
+      IpuPjRtExecutable* executable);
+
+  /** Mark on-device buffer as expired. */
+  void MarkOnDeviceExpired();
+  /** Is any on-device buffer expired? */
+  bool IsAnyOnDeviceExpired() const noexcept;
 };
 
 /**
@@ -175,7 +221,7 @@ class IpuPjRtExecutable : public PjRtExecutable {
       std::unique_ptr<PjRtStreamExecutorExecutable> ipu_se_executable,
       std::unique_ptr<TfrtCpuExecutable> host_executable,
       const CompileOptions& compile_options, IpuPjRtClient* client);
-  virtual ~IpuPjRtExecutable() = default;
+  virtual ~IpuPjRtExecutable();
 
   virtual PjRtClient* client() const;
   // Unique name for this executable, e.g., HloModule name.
@@ -261,6 +307,11 @@ class IpuPjRtExecutable : public PjRtExecutable {
   virtual bool IsDeleted();
 
   /// IPU specific APIs.
+  /**
+   * @brief Copy/synchronize on-device SRAM buffers to host.
+   * NOTE: this method is blocking/synchronous.
+   */
+  Status CopyDeviceToHostBuffers(IpuPjRtRunOutputsRef* run_outputs_ref);
 
  private:
   friend class IpuPjRtClient;
@@ -305,6 +356,12 @@ class IpuPjRtExecutable : public PjRtExecutable {
       m_addressable_device_logical_ids;
   /** IPU mesh device id. */
   int m_device_mesh_id = -1;
+
+  /** Last run output buffers reference.
+   * NOTE: this is useful in the case `IpuPjRtExecutable` instance gets deleted
+   * before the output buffers => need to mark these as on-device expired.
+   */
+  std::shared_ptr<IpuPjRtRunOutputsRef> m_last_run_outputs_ref{nullptr};
 };
 
 }  // namespace poplarplugin

@@ -123,6 +123,20 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
       .def_static("create_ipu_manager",
                   &IpuDeviceMeshManager::createIpuManager);
 
+  // IPU PjRt buffer bindings.
+  py::enum_<IpuPjRtBufferLocation>(m, "IpuPjRtBufferLocation")
+      .value("UNKNOWN", IpuPjRtBufferLocation::UNKNOWN)
+      .value("HOST", IpuPjRtBufferLocation::HOST)
+      .value("SRAM", IpuPjRtBufferLocation::SRAM)
+      .value("DRAM", IpuPjRtBufferLocation::DRAM);
+
+  py::class_<IpuPjRtBufferStatus>(m, "IpuPjRtBufferStatus")
+      .def(py::init<IpuPjRtBufferLocation>(), py::arg("location"))
+      .def("mark_on_device_expired", &IpuPjRtBufferStatus::MarkOnDeviceExpired)
+      .def_property_readonly("location", &IpuPjRtBufferStatus::location)
+      .def_property_readonly("is_on_device_expired",
+                             &IpuPjRtBufferStatus::IsOnDeviceExpired);
+
   // IPU PjRt client bindings.
   py::class_<IpuPjRtOptions>(m, "IpuPjRtOptions")
       .def(py::init<>())

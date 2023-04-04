@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 #pragma once
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_device_mesh.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_buffer.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_device.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_executable.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/utils.h"
@@ -71,6 +72,11 @@ struct IpuPjRtMeshState {
   int executable_id = 0;
   /** Latest run id (none by default). */
   int run_id = 0;
+
+  /** Latest run buffers reference. Useful for marking on-device as expired.
+   * NOTE: updated at every run, to keep track of status of former buffers.
+   */
+  std::shared_ptr<IpuPjRtRunOutputsRef> run_outputs_ref{nullptr};
   /** Latest run status (PjRt future). */
   std::optional<PjRtFuture<Status>> run_status = std::nullopt;
 };
@@ -314,7 +320,8 @@ class IpuPjRtClient : public PjRtClient {
    * TODO: pass the PjRtFuture as well.
    */
   std::tuple<IpuPjRtExecutableRunInfo, IpuPjRtClientState, IpuPjRtClientState>
-  UpdateClientState(int mesh_id, int executable_id);
+  UpdateClientState(int mesh_id, int executable_id,
+                    std::shared_ptr<IpuPjRtRunOutputsRef> run_outputs_ref);
 
   /**
    * @brief Should we run an IPU XLA computation directly on HOST? For
