@@ -26,6 +26,7 @@ from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client import (
 )
 
 ops = xla_client.ops
+xe = xla_client._xla
 
 # Skipping some tests if no local IPU hardware.
 ipu_hw_available = IpuDeviceMeshManager.has_local_ipu_hardware()
@@ -301,6 +302,45 @@ class IpuPjrtClientExecutableHwTest(parameterized.TestCase):
     )
     for id in range(num_devices):
       npt.assert_array_equal(outputs[(id + 1) % num_devices][0], inputs[id][0])
+
+  @parameterized.parameters([
+      [[[0, 1, 2, 3]]],
+  ])
+  def testIpuPjRtclientHw__executable_multi_ipus__donate_argnums(self, replica_groups):
+    device_ids = [[0], [1], [2], [3]]
+    num_devices = np.array(device_ids).size
+    compile_opts = make_compile_options(device_ids)
+    mlir_module = """
+    module @pmap_parallel_fn.0 {
+      func.func public @main(%arg0: tensor<3xf32>, %arg1: tensor<3xf32> {tf.aliasing_output = 1 : i32}) -> (tensor<3xf32>, tensor<3xf32>) {
+        %0 = "mhlo.all_reduce"(%arg1) ({
+        ^bb0(%arg2: tensor<f32>, %arg3: tensor<f32>):
+          %3 = mhlo.add %arg2, %arg3 : tensor<f32>
+          "mhlo.return"(%3) : (tensor<f32>) -> ()
+        }) {replica_groups = dense<[[0, 1, 2, 3]]> : tensor<1x4xi64>} : (tensor<3xf32>) -> tensor<3xf32>
+        %1 = mhlo.add %arg0, %0 : tensor<3xf32>
+        %2 = mhlo.multiply %1, %1 : tensor<3xf32>
+        return %2, %1 : tensor<3xf32>, tensor<3xf32>
+      }
+    }
+    """
+    c = xe.mlir.mlir_module_to_xla_computation(mlir_module, use_tuple_args=False)
+    executable = self.backend.compile(c, compile_opts)
+
+    arg0 = np.array([10, -2, 1.5], dtype=np.float32)
+    inputs = [[arg0 * (idx + 1), arg0 * (2 * idx + 1)] for idx in range(num_devices)]
+    # First call.
+    outputs = xla_client.execute_with_python_values_replicated(
+        executable, inputs, self.backend
+    )
+    in0, in1 = [np.stack(v) for v in zip(*inputs)]
+    out0, out1 = [np.stack(v) for v in zip(*outputs)]
+    # Check results!
+    npt.assert_array_equal(out0, out1 * out1)
+    npt.assert_array_equal(out1, in0 + np.sum(in1, axis=0, keepdims=True))
+
+    # Second call?
+    xla_client.execute_with_python_values_replicated(executable, outputs, self.backend)
 
 
 if __name__ == "__main__":

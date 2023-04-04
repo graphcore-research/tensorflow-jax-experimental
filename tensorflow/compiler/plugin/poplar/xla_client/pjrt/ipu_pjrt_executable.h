@@ -81,7 +81,7 @@ struct IpuPjRtRunReplicaInputs {
       const std::vector<InputOutputAliasingMap::InputInfo>& input_infos,
       int replica, poplar::Engine* engine);
   /** Connect input donated buffers. TODO: const method. */
-  void ConnectStreamDonatedBuffers(
+  void ConnectH2DStreamDonatedBuffers(
       const std::vector<InputOutputAliasingMap::InputInfo>& input_infos,
       int replica, poplar::Engine* engine);
 };
@@ -159,6 +159,13 @@ struct IpuPjRtRunState {
   void ConnectStreamCallbacks(
       const std::vector<InputOutputAliasingMap::InputInfo>& input_infos,
       const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
+      poplar::Engine* engine);
+  /**
+   * @brief Connect input H2D donated buffers (i.e. transfer
+   * weights/parameters).
+   */
+  void ConnectH2DStreamDonatedBuffers(
+      const std::vector<InputOutputAliasingMap::InputInfo>& input_infos,
       poplar::Engine* engine);
 
   /**

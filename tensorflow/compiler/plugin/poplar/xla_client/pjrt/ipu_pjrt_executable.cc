@@ -92,27 +92,22 @@ StatusOr<IpuPjRtBufferLocation> CheckInputDonatedBuffers(
  */
 class IpuInputStreamCallback : public poplar::StreamCallback {
  public:
-  IpuInputStreamCallback(std::size_t index, IpuPjRtRunReplicaInputs* inputs)
-      : m_index{index}, m_inputs{inputs} {}
+  IpuInputStreamCallback(std::shared_ptr<MaybeOwningCpuMemory> host_buffer)
+      : m_host_buffer{std::move(host_buffer)} {}
 
   poplar::StreamCallback::Result prefetch(void* dst) noexcept override {
     // Not yet supported.
     return poplar::StreamCallback::Result::NotAvailable;
   }
   void fetch(void* dst) noexcept override {
-    // Too complicated => simplify?
-    const auto& inbuffer =
-        m_inputs->host_buffers[m_index].buffer()->Buffers()[0];
     // Copy from input host TFRT buffer.
-    std::memcpy(dst, inbuffer->data(), inbuffer->size());
+    std::memcpy(dst, m_host_buffer->data(), m_host_buffer->size());
   }
   void complete() noexcept override {}
 
  private:
-  /** Output index (in the following data structure). */
-  std::size_t m_index;
-  /** Pointer to raw host input buffers. */
-  IpuPjRtRunReplicaInputs* m_inputs;
+  /** Input host buffer to stream to device. */
+  std::shared_ptr<MaybeOwningCpuMemory> m_host_buffer;
 };
 
 /**
@@ -120,25 +115,21 @@ class IpuInputStreamCallback : public poplar::StreamCallback {
  */
 class IpuOutputStreamCallback : public poplar::StreamCallback {
  public:
-  IpuOutputStreamCallback(std::size_t index, IpuPjRtRunReplicaOutputs* outputs)
-      : m_index{index}, m_outputs{outputs} {}
+  IpuOutputStreamCallback(std::shared_ptr<MaybeOwningCpuMemory> host_buffer)
+      : m_host_buffer{std::move(host_buffer)} {}
 
   poplar::StreamCallback::Result prefetch(void* dst) noexcept override {
     // Not supported for outputs.
     return poplar::StreamCallback::Result::NotAvailable;
   }
   void fetch(void* src) noexcept override {
-    const auto& outbuffer = m_outputs->raw_host_buffers[m_index];
-    // Copy to output host TFRT buffer.
-    std::memcpy(outbuffer->data(), src, outbuffer->size());
+    std::memcpy(m_host_buffer->data(), src, m_host_buffer->size());
   }
   void complete() noexcept override {}
 
  private:
-  /** Output index (in the following data structure). */
-  std::size_t m_index;
-  /** Pointer to raw host output buffers. */
-  IpuPjRtRunReplicaOutputs* m_outputs;
+  /** Input host buffer to stream to from device. */
+  std::shared_ptr<MaybeOwningCpuMemory> m_host_buffer;
 };
 
 static tfrt::AsyncValueRef<CpuEvent> GetOrCreateReadyEvent(
@@ -277,25 +268,27 @@ void IpuPjRtRunReplicaInputs::ConnectStreamCallbacks(
     const auto& ininfo = input_infos[i];
     const auto& inname = ininfo.Handles()[0];
     if (ininfo.IsStreaming()) {
-      // TODO: pass directly raw host buffer?
+      // TODO: pass directly raw host buffer pointer (instead of shared ptr)?
       engine->connectStreamToCallback(
-          inname, replica, std::make_unique<IpuInputStreamCallback>(i, this));
+          inname, replica,
+          std::make_unique<IpuInputStreamCallback>(
+              host_buffers[i].buffer()->Buffers()[0]));
     }
   }
 }
 
-void IpuPjRtRunReplicaInputs::ConnectStreamDonatedBuffers(
+void IpuPjRtRunReplicaInputs::ConnectH2DStreamDonatedBuffers(
     const std::vector<InputOutputAliasingMap::InputInfo>& input_infos,
     int replica, poplar::Engine* engine) {
-  CHECK_EQ(replica, 0);
   const auto num_inputs = input_infos.size();
   for (std::size_t i = 0; i < num_inputs; ++i) {
     const auto& ininfo = input_infos[i];
     const auto& inname = ininfo.Handles()[0];
     if (ininfo.IsResource()) {
-      // TODO: use connectStreamToCallback?
+      // Connect host buffer to stream to SRAM.
       const auto& inbuffer = host_buffers[i].buffer()->Buffers()[0];
-      engine->connectStream(inname, inbuffer->data());
+      engine->connectStreamToCallback(
+          inname, replica, std::make_unique<IpuInputStreamCallback>(inbuffer));
     }
   }
 }
@@ -359,7 +352,8 @@ void IpuPjRtRunReplicaOutputs::ConnectStreamCallbacks(
     if (outinfo.IsStreaming()) {
       const auto& outname = outinfo.Handles()[0];
       engine->connectStreamToCallback(
-          outname, replica, std::make_unique<IpuOutputStreamCallback>(i, this));
+          outname, replica,
+          std::make_unique<IpuOutputStreamCallback>(raw_host_buffers[i]));
     }
   }
 }
@@ -398,6 +392,17 @@ void IpuPjRtRunState::ConnectStreamCallbacks(
   }
   // Random seed as well!
   engine->connectStream("__seed_stream", (void*)(&random_seed));
+}
+
+void IpuPjRtRunState::ConnectH2DStreamDonatedBuffers(
+    const std::vector<InputOutputAliasingMap::InputInfo>& input_infos,
+    poplar::Engine* engine) {
+  const auto num_replicas = this->num_replicas();
+  // Connect streams from all replicas.
+  for (std::size_t replica = 0; replica < num_replicas; ++replica) {
+    all_inputs[replica].ConnectH2DStreamDonatedBuffers(input_infos, replica,
+                                                       engine);
+  }
 }
 
 std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>
@@ -702,9 +707,9 @@ IpuPjRtExecutable::Execute(
   // Transfer donated input buffers to IPU.
   if (inputs_donated_location == IpuPjRtBufferLocation::HOST) {
     LOG(INFO) << "Transfer buffers from HOST to IPU:" << name();
-    // TODO: support multiple replicas.
-    run_state.all_inputs[0].ConnectStreamDonatedBuffers(
-        io_aliasing_map.GetEntryInputInfos(), 0, engine);
+    // Connect on-device buffers H2D streams.
+    run_state.ConnectH2DStreamDonatedBuffers(
+        io_aliasing_map.GetEntryInputInfos(), engine);
     engine->run(PoplarProgramType::HOST_TO_DEVICE);
   }
   // Connect all replicas streams for running main program.
@@ -883,8 +888,8 @@ Status IpuPjRtExecutable::CopyDeviceToHostBuffers(
   auto& all_outputs = run_outputs_ref->output_buffers;
   const std::size_t num_replicas = all_outputs.size();
   // Connect all on-device SRAM buffers.
-  for (std::size_t r = 0; r < num_replicas; ++r) {
-    auto& replica_outputs = all_outputs[r];
+  for (std::size_t replica = 0; replica < num_replicas; ++replica) {
+    auto& replica_outputs = all_outputs[replica];
     for (std::size_t idx = 0; idx < replica_outputs.size(); ++idx) {
       IpuPjRtBuffer* output = replica_outputs[idx].buffer;
       const auto outinfo = output_infos[idx];
@@ -895,8 +900,10 @@ Status IpuPjRtExecutable::CopyDeviceToHostBuffers(
                             output->GetHostBufferWithHold(
                                 TfrtCpuBuffer::ScopedHold::kUsage, true));
         const auto& raw_host_buffer = host_buffer_hold.buffer()->Buffers()[0];
-        // TODO: handle replicas properly?
-        engine->connectStream(outname, raw_host_buffer->data());
+        // Connect replica D2H stream to proper host buffer.
+        engine->connectStreamToCallback(
+            outname, replica,
+            std::make_unique<IpuOutputStreamCallback>(raw_host_buffer));
       }
     }
   }
