@@ -24,6 +24,9 @@ bazel build --config=monolithic //tensorflow/compiler/plugin/poplar/xla_client:i
 ```
 Note that the option `--config=monolithic` is here to reflect the compilation configuration of `jaxlib`, which generates a single monolithic shared library.
 
+Additional useful `bazel` parameters:
+* `--output_user_root`: Update bazel directory (e.g. for a faster local disk);
+
 ## Running unit tests
 
 For the purpose of supporting JAX, here are the test targets of interest:

@@ -47,13 +47,14 @@ bool IpuPjRtDevice::IsAddressable() const {
 }
 
 int IpuPjRtDevice::id() const {
-  // TODO: should be unique in multi-process case.
-  return m_device_info.id();
+  // Using local device index for now. Dense, starting from zero.
+  // TODO: should be unique in multi-process case?
+  return m_device_info.local_device_index();
 }
 int IpuPjRtDevice::process_index() const { return m_process_index; }
 int IpuPjRtDevice::local_hardware_id() const {
   // Opaque hardware ID: using IPU Poplar target id.
-  return m_device_info.id();
+  return m_device_info.local_hardware_id();
 }
 
 absl::string_view IpuPjRtDevice::device_kind() const { return m_device_kind; }
@@ -63,9 +64,10 @@ std::string IpuPjRtDevice::DebugString() const {
   return ToString();
 }
 std::string IpuPjRtDevice::ToString() const {
-  return absl::StrFormat(
-      "IpuDevice(id=%i, num_tiles=%i, version=%s)", m_device_info.id(),
-      m_device_info.target().getTilesPerIPU(), m_device_info.version());
+  return absl::StrFormat("IpuDevice(id=%i, num_tiles=%i, version=%s)",
+                         m_device_info.local_device_index(),
+                         m_device_info.target().getTilesPerIPU(),
+                         m_device_info.version());
 }
 
 // Returns a scoped event that the caller uses to tell the PjRtClient that

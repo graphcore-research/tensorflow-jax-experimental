@@ -60,6 +60,19 @@ def parse_bool(v: str) -> bool:
     )
 
 
+def int_if_not_none(v):
+  if v is None:
+    return None
+  return int(v)
+
+
+def parse_visible_devices(v):
+  if v is None:
+    return None
+  visible_devices = set(sorted([int(k) for k in v.split(",")]))
+  return visible_devices
+
+
 def parse_ipu_env_flags(environ: Any = None) -> Dict[str, str]:
   """Parse IPU flags from environnment variables.
   """
@@ -104,7 +117,8 @@ def make_ipu_pjrt_options(flags: Dict[str, str]) -> IpuPjRtOptions:
   """Create IPU PjRt client options from env. flags.
   """
   opts = IpuPjRtOptions()
-  # TODO: support `visible_devices` flag.
+  opts.num_devices = int_if_not_none(flags.get("device_count", None))
+  opts.visible_devices = parse_visible_devices(flags.get("visible_devices", None))
   opts.use_ipu_model = parse_bool(flags.get("use_model", opts.use_ipu_model))
   opts.ipu_model_num_tiles = int(flags.get("model_num_tiles", opts.ipu_model_num_tiles))
   opts.execute_on_host_flops_limit = float(

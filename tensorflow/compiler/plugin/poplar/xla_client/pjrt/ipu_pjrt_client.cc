@@ -79,7 +79,7 @@ IpuPjRtClientState IpuPjRtClientState::Update(
     // More complicated case => new IPU mesh, need to remove all overlapping
     // meshes and introduce new one.
     const auto overlapping_mesh_ids =
-        ipu_mesh_manager.overlappingMeshIds(mesh_id);
+        ipu_mesh_manager.OverlappingMeshIds(mesh_id);
     const auto overlapping_set_ids = std::set<IpuDeviceMeshManager::IdType>(
         overlapping_mesh_ids.begin(), overlapping_mesh_ids.end());
 
@@ -161,8 +161,8 @@ IpuOptions MakeIpuStreamExecutorOptions(
     // Use `compile_ipu_code` option?
   } else {
     for (const auto& m : meshes) {
-      // IPU hardware: use proper Poplar id.
-      se_options.add_device_config()->set_cfg_index(m.id());
+      // IPU hardware: use proper Poplar IPU (mesh) id.
+      se_options.add_device_config()->set_cfg_index(m.local_hardware_id());
     }
   }
 
@@ -176,12 +176,16 @@ IpuOptions MakeIpuStreamExecutorOptions(
   se_options.set_num_io_tiles(0);
   se_options.set_place_ops_on_io_tiles(false);
   se_options.set_io_tile_available_memory_proportion(0.9);
+  // TF StreamExecutor backend should never try to attach device.
+  // The former are only used for engine compilation.
+  se_options.set_device_connection_type(IpuDeviceConnectionType::NEVER);
   return se_options;
 }
 
 /**
  * @brief Check consistency/compatibility between IPU device mesh and Poplar
- * target.
+ * target. Make sure there is no weird thing happening when the stream executor
+ * are constructed.
  */
 Status CheckIpuMeshPoplarTarget(const IpuDeviceMeshInfo& mesh,
                                 const poplar::Target& target) {
@@ -224,10 +228,11 @@ StatusOr<LocalClient*> GetIpuMeshXlaClient(
   options.set_platform(platform);
   const auto& ipu_meshes = ipu_mesh_manager.meshes();
   CHECK_GT(ipu_meshes.size(), 0);
-  // Available IPU meshes (using id provided by Poplar).
+  // Create XLA SE allowed devices from IPU meshes.
+  // Using device index in [0, ..., N meshes] for id.
   std::set<int> allowed_devices;
   for (const auto& m : ipu_meshes) {
-    allowed_devices.insert(m.id());
+    allowed_devices.insert(m.local_device_index());
   }
   options.set_allowed_devices(allowed_devices);
   return ClientLibrary::GetOrCreateLocalClient(options);
@@ -251,26 +256,27 @@ BuildLocalSEMeshDeviceStates(LocalClient* xla_mesh_client, bool asynchronous,
   const auto ipu_se_options =
       MakeIpuStreamExecutorOptions(ipu_mesh_manager, ipu_options);
   // Make sure all stream executors are first reset.
-  for (size_t i = 0; i < meshes.size(); ++i) {
+  for (const auto& mesh : meshes) {
     se::StreamExecutor* executor =
-        xla_mesh_client->backend().stream_executor(i).ValueOrDie();
+        xla_mesh_client->backend()
+            .stream_executor(mesh.local_device_index())
+            .ValueOrDie();
     auto* e = static_cast<PoplarExecutor*>(executor->implementation());
     e->Reset();
   }
   // Configure IPU XLA stream executors.
-  for (size_t i = 0; i < meshes.size(); ++i) {
+  for (const auto& mesh : meshes) {
     // Configure Poplar executor IPU (mesh) device.
     se::StreamExecutor* executor =
-        xla_mesh_client->backend().stream_executor(i).ValueOrDie();
+        xla_mesh_client->backend()
+            .stream_executor(mesh.local_device_index())
+            .ValueOrDie();
     auto* e = static_cast<IpuExecutor*>(executor->implementation());
     TF_RETURN_IF_ERROR(e->ConfigurePoplarDevice(ipu_se_options));
-    // Detach IPU device: stream executor should not need to keep hand on
-    // device (only requiring target for compilation).
-    e->DetachDevice();
     // Check that the Poplar target is consistent with IPU mesh description.
     CHECK(e->HasPoplarTarget());
-    TF_RETURN_IF_ERROR(CheckIpuMeshPoplarTarget(meshes[i].info(),
-                                                e->GetOrCreatePoplarTarget()));
+    TF_RETURN_IF_ERROR(
+        CheckIpuMeshPoplarTarget(mesh.info(), e->GetOrCreatePoplarTarget()));
 
     local_mesh_devices.push_back(absl::make_unique<LocalDeviceState>(
         executor, xla_mesh_client, LocalDeviceState::kComputeSynchronized,
@@ -346,7 +352,7 @@ IpuPjRtClient::IpuPjRtClient(bool asynchronous, int process_id,
   m_se_mesh_client =
       MakeIpuSEMeshClient(true, m_ipu_mesh_manager, m_options).ValueOrDie();
 
-  // TODO: client state + attach single IPUs.
+  // TODO: client state + attach single IPUs?
 }
 IpuPjRtClient::~IpuPjRtClient() {
   // Delete CPU and IPU stream executor clients.
@@ -422,10 +428,14 @@ StatusOr<DeviceAssignment> IpuPjRtClient::GetDefaultDeviceAssignment(
         num_devices, num_replicas, num_partitions);
   }
   // Get the default mesh for this number of devices.
-  const auto& default_mesh = m_ipu_mesh_manager.defaultMesh(num_devices);
-  const auto& ipu_ids = default_mesh.info().ipuIds();
+  const auto& default_mesh = m_ipu_mesh_manager.default_mesh(num_devices);
+  const auto& local_ipu_ids = default_mesh.info().ipu_ids();
   auto device_assignment = DeviceAssignment(num_replicas, num_partitions);
-  std::copy(ipu_ids.begin(), ipu_ids.end(), device_assignment.begin());
+  // Convert from IPU hardware id to local device index.
+  for (std::size_t k = 0; k < local_ipu_ids.size(); ++k) {
+    *(device_assignment.begin() + k) =
+        m_ipu_mesh_manager.FromMeshIdToIndex(local_ipu_ids[k]);
+  }
   return device_assignment;
 }
 
@@ -635,15 +645,29 @@ StatusOr<bool> IpuPjRtClient::IsIpuExecutableRunOnHost(
 }
 
 // Factory methods.
-IpuDeviceMeshManager CreateIpuDeviceMeshManager(
+StatusOr<IpuDeviceMeshManager> CreateIpuDeviceMeshManager(
     const IpuPjRtOptions& ipu_options) {
-  // Visible devices option not yet supported.
-  CHECK(!ipu_options.visible_devices.has_value());
   if (ipu_options.use_ipu_model) {
-    return IpuDeviceMeshManager::createIpuModelManager(
-        ipu_options.ipu_model_num_tiles, ipu_options.ipu_model_version);
+    // Single IPU model by default.
+    int num_devices = 1;
+    if (ipu_options.visible_devices.has_value()) {
+      // Discard ids. Just care about number of devices.
+      num_devices = ipu_options.visible_devices.value().size();
+    } else if (ipu_options.num_devices.has_value()) {
+      num_devices = ipu_options.num_devices.value();
+    }
+    return IpuDeviceMeshManager::CreateIpuModelManager(
+        num_devices, ipu_options.ipu_model_num_tiles,
+        ipu_options.ipu_model_version);
   }
-  return IpuDeviceMeshManager::createIpuManager();
+  // Real IPU hardware! -1 for all IPUs.
+  const int num_devices =
+      ipu_options.num_devices ? ipu_options.num_devices.value() : -1;
+  if (ipu_options.visible_devices.has_value()) {
+    return IpuDeviceMeshManager::CreateIpuManager(
+        ipu_options.visible_devices.value());
+  }
+  return IpuDeviceMeshManager::CreateIpuManager(num_devices);
 }
 
 std::vector<IpuPjRtDevice> CreateIpuDevices(
@@ -662,7 +686,8 @@ StatusOr<std::unique_ptr<PjRtClient>> GetIpuClient(
     bool asynchronous, const IpuPjRtOptions& ipu_options) {
   // Default local process id?
   int process_id = 0;
-  auto mesh_manager = CreateIpuDeviceMeshManager(ipu_options);
+  TF_ASSIGN_OR_RETURN(auto mesh_manager,
+                      CreateIpuDeviceMeshManager(ipu_options));
   auto devices = CreateIpuDevices(mesh_manager);
 
   return std::unique_ptr<PjRtClient>(std::make_unique<IpuPjRtClient>(

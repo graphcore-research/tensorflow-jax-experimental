@@ -62,7 +62,11 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
       .def("__len__", &IpuDeviceMeshInfo::size)
       .def("__contains__", &IpuDeviceMeshInfo::isIn)
       .def_property_readonly("id", &IpuDeviceMeshInfo::id)
-      .def_property_readonly("ipu_ids", &IpuDeviceMeshInfo::ipuIds)
+      .def_property_readonly("local_hardware_id",
+                             &IpuDeviceMeshInfo::local_hardware_id)
+      .def_property_readonly("local_device_index",
+                             &IpuDeviceMeshInfo::local_device_index)
+      .def_property_readonly("ipu_ids", &IpuDeviceMeshInfo::ipu_ids)
       .def_property_readonly("target", &IpuDeviceMeshInfo::target,
                              py::return_value_policy::reference_internal)
       .def_property_readonly("size", &IpuDeviceMeshInfo::size)
@@ -73,16 +77,21 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
       .def("__contains__", &IpuDeviceMesh::isIn)
       .def("overlaps", &IpuDeviceMesh::overlaps, py::arg("mesh"))
       .def_property_readonly("id", &IpuDeviceMesh::id)
+      .def_property_readonly("local_hardware_id",
+                             &IpuDeviceMesh::local_hardware_id)
+      .def_property_readonly("local_device_index",
+                             &IpuDeviceMesh::local_device_index)
       .def_property_readonly("size", &IpuDeviceMesh::size)
       .def_property_readonly("type", &IpuDeviceMesh::type)
       .def_property_readonly("version", &IpuDeviceMesh::version)
       .def_property_readonly("num_tiles_per_ipu",
                              &IpuDeviceMesh::num_tiles_per_ipu)
-      .def_property_readonly("info", &IpuDeviceMesh::info,
-                             py::return_value_policy::reference_internal)
+      .def_property_readonly(
+          "info", py::overload_cast<>(&IpuDeviceMesh::info, py::const_),
+          py::return_value_policy::reference_internal)
       .def_property_readonly("target", &IpuDeviceMesh::target,
                              py::return_value_policy::reference_internal)
-      .def_property_readonly("is_attached", &IpuDeviceMesh::isAttached);
+      .def_property_readonly("is_attached", &IpuDeviceMesh::IsAttached);
 
   py::class_<IpuDeviceMeshManager>(m, "IpuDeviceMeshManager")
       .def("find",
@@ -101,27 +110,37 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
       .def("__getitem__", &IpuDeviceMeshManager::at, py::arg("idx"),
            py::return_value_policy::reference_internal)
       .def("count", &IpuDeviceMeshManager::count, py::arg("mesh_size") = 1)
-      .def("default_mesh", &IpuDeviceMeshManager::defaultMesh,
+      .def("default_mesh", &IpuDeviceMeshManager::default_mesh,
            py::arg("num_ipus"), py::return_value_policy::reference_internal)
-      .def("from_mesh_id_to_index", &IpuDeviceMeshManager::fromMeshIdToIndex,
+      .def("from_mesh_id_to_index", &IpuDeviceMeshManager::FromMeshIdToIndex,
            py::arg("mesh_id"))
-      .def("overlapping_mesh_ids", &IpuDeviceMeshManager::overlappingMeshIds,
+      .def("overlapping_mesh_ids", &IpuDeviceMeshManager::OverlappingMeshIds,
            py::arg("mesh_id"))
-      .def("attach", &IpuDeviceMeshManager::attach, py::arg("mesh_id"),
+      .def("clear", &IpuDeviceMeshManager::clear)
+      .def("attach", &IpuDeviceMeshManager::Attach, py::arg("mesh_id"),
            py::arg("force_detach_overlapping") = true)
-      .def("is_attached", &IpuDeviceMeshManager::isAttached, py::arg("mesh_id"))
-      .def("detach", &IpuDeviceMeshManager::detach, py::arg("mesh_id"))
-      .def("detach_all", &IpuDeviceMeshManager::detachAll)
+      .def("is_attached", &IpuDeviceMeshManager::IsAttached, py::arg("mesh_id"))
+      .def("detach", &IpuDeviceMeshManager::Detach, py::arg("mesh_id"))
+      .def("detach_all", &IpuDeviceMeshManager::DetachAll)
       .def_property_readonly("size", &IpuDeviceMeshManager::size)
       .def_property_readonly("type", &IpuDeviceMeshManager::type)
       .def_property_readonly("meshes", &IpuDeviceMeshManager::meshes)
-      .def_static("has_local_ipu_hardware",
-                  &IpuDeviceMeshManager::hasLocalIpuHardware)
+      .def_static("is_ipu_hardware_available",
+                  &IpuDeviceMeshManager::IsIpuHardwareAvailable)
+      .def_static("num_ipu_hardware_available",
+                  &IpuDeviceMeshManager::NumIpuHardwareAvailable)
       .def_static("create_ipu_model_manager",
-                  &IpuDeviceMeshManager::createIpuModelManager,
-                  py::arg("num_tiles") = 4, py::arg("version") = "ipu2")
+                  &IpuDeviceMeshManager::CreateIpuModelManager,
+                  py::arg("num_devices") = 1, py::arg("num_tiles") = 4,
+                  py::arg("version") = "ipu2")
+      .def_static(
+          "create_ipu_manager",
+          py::overload_cast<int>(&IpuDeviceMeshManager::CreateIpuManager),
+          py::arg("num_devices") = -1)
       .def_static("create_ipu_manager",
-                  &IpuDeviceMeshManager::createIpuManager);
+                  py::overload_cast<const std::set<int>&>(
+                      &IpuDeviceMeshManager::CreateIpuManager),
+                  py::arg("visible_devices"));
 
   // IPU PjRt buffer bindings.
   py::enum_<IpuPjRtBufferLocation>(m, "IpuPjRtBufferLocation")
@@ -140,13 +159,15 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
   // IPU PjRt client bindings.
   py::class_<IpuPjRtOptions>(m, "IpuPjRtOptions")
       .def(py::init<>())
-      .def(py::init<std::optional<std::set<int>>, bool, int, std::string,
-                    float>(),
+      .def(py::init<std::optional<std::set<int>>, std::optional<int>, bool, int,
+                    std::string, float>(),
            py::arg("visible_devices") = std::nullopt,
+           py::arg("num_devices") = std::nullopt,
            py::arg("use_ipu_model") = false, py::arg("ipu_model_num_tiles") = 4,
            py::arg("ipu_model_version") = "ipu2",
            py::arg("execute_on_host_flops_limit") = 0.0)
       .def_readwrite("visible_devices", &IpuPjRtOptions::visible_devices)
+      .def_readwrite("num_devices", &IpuPjRtOptions::num_devices)
       .def_readwrite("use_ipu_model", &IpuPjRtOptions::use_ipu_model)
       .def_readwrite("ipu_model_num_tiles",
                      &IpuPjRtOptions::ipu_model_num_tiles)
@@ -188,6 +209,8 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
   py::class_<IpuPjRtDevice, PjRtDevice, ClientAndPtr<IpuPjRtDevice>>(
       m, "IpuPjRtDevice")
       .def("__repr__", &IpuPjRtDevice::ToString)
+      .def_property_readonly("local_hardware_id",
+                             &IpuPjRtDevice::local_hardware_id)
       .def_property_readonly("ipu_mesh_manager",
                              &IpuPjRtDevice::ipu_mesh_manager,
                              py::return_value_policy::reference_internal)

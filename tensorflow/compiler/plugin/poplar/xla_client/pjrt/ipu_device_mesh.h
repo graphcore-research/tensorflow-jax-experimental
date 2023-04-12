@@ -24,6 +24,7 @@ limitations under the License.
 
 #include "tensorflow/compiler/xla/service/computation_placer.h"
 #include "tensorflow/compiler/xla/service/platform_util.h"
+#include "tensorflow/compiler/xla/util.h"
 
 namespace xla {
 namespace poplarplugin {
@@ -57,9 +58,16 @@ class IpuDeviceMeshInfo {
   IpuDeviceMeshInfo& operator=(IpuDeviceMeshInfo&&) noexcept = default;
 
   /** Id of the IPU mesh. */
-  IdType id() const noexcept { return m_id; }
-  /** IPU ids in the mesh. */
-  const std::vector<IdType>& ipuIds() const noexcept { return m_ipu_ids; }
+  IdType id() const noexcept { return m_mesh_id; }
+  /** Local hardware IPU (mesh) id. Equivalent to id(). */
+  IdType local_hardware_id() const noexcept { return m_mesh_id; }
+  /** Local device index (i.e. used in PjRt client). In [0, ..., N meshes]. */
+  IdType local_device_index() const noexcept { return m_device_index; }
+  /** Set the local device index. */
+  void set_local_device_index(IdType index) noexcept { m_device_index = index; }
+
+  /** (Single) IPU ids in the mesh. */
+  const std::vector<IdType>& ipu_ids() const noexcept { return m_ipu_ids; }
   /** IPU Poplar target corresponding to the mesh. */
   const poplar::Target& target() const noexcept { return m_target; }
 
@@ -76,11 +84,14 @@ class IpuDeviceMeshInfo {
   bool isIn(IdType id) const noexcept;
   /** Is an IPU mesh overlapping with another one. */
   bool overlaps(const IpuDeviceMeshInfo& mesh_info) const noexcept;
+  bool overlaps(const std::vector<IdType>& ipu_ids) const noexcept;
 
  private:
-  /** Mesh unique id.  */
-  IdType m_id;
-  /** IPU ids part of the mesh. */
+  /** Device index, in [0, ..., N meshes]. */
+  IdType m_device_index = 0;
+  /** Mesh unique id. */
+  IdType m_mesh_id;
+  /** (Single) IPU ids part of the mesh. */
   std::vector<IdType> m_ipu_ids;
   /** Poplar target corresponding to the mesh */
   poplar::Target m_target;
@@ -107,15 +118,25 @@ class IpuDeviceMesh {
 
   /** IPU mesh info. */
   const IpuDeviceMeshInfo& info() const noexcept { return m_mesh_info; }
+  IpuDeviceMeshInfo& info() noexcept { return m_mesh_info; }
   /** IPU Poplar device. */
   const poplar::Device& device() const { return m_device; }
   /** Is the IPU mesh attached? */
-  bool isAttached() const noexcept;
+  bool IsAttached() const noexcept;
 
   /** IPU Poplar target corresponding to the mesh. */
   const poplar::Target& target() const noexcept { return m_mesh_info.target(); }
   /** Id of the IPU mesh. */
   IdType id() const noexcept { return m_mesh_info.id(); }
+  /** Local hardware IPU (mesh) id. Equivalent to id(). */
+  IdType local_hardware_id() const noexcept {
+    return m_mesh_info.local_hardware_id();
+  }
+  /** Local device index (i.e. used in PjRt client). In [0, ..., N meshes]. */
+  IdType local_device_index() const noexcept {
+    return m_mesh_info.local_device_index();
+  }
+
   /** Size of the IPU mesh */
   std::size_t size() const noexcept { return m_mesh_info.size(); }
   /** IPU target type */
@@ -151,6 +172,8 @@ class IpuDeviceMeshManager {
   using IdType = IpuDeviceMeshInfo::IdType;
   /** Empty IPU manager. */
   IpuDeviceMeshManager() {}
+  /** Clear the IPU manager, removing all IPU meshes. */
+  void clear();
 
   // Standard move. No copy.
   IpuDeviceMeshManager(IpuDeviceMeshManager&&) noexcept;
@@ -160,21 +183,34 @@ class IpuDeviceMeshManager {
 
   /**
    * @brief IPU (local) hardware manager.
+   * @param num_devices Number of IPU hardware devices to use. -1: use all IPU
+   * devices.
    */
-  static IpuDeviceMeshManager createIpuManager();
+  static StatusOr<IpuDeviceMeshManager> CreateIpuManager(int num_devices = -1);
+  /**
+   * @brief IPU (local) hardware manager.
+   * @param visible_devices Visible IPU devices to use.
+   */
+  static StatusOr<IpuDeviceMeshManager> CreateIpuManager(
+      const std::set<int>& visible_devices);
+
   /**
    * @brief IPU model (simulator) manager
+   * @param num_devices Number of IPU model devices to create.
    * @param num_tiles Number of tiles to use in the IPU model.
    * @param version IPU hardware version ('ipu2' or 'ipu21').
    */
-  static IpuDeviceMeshManager createIpuModelManager(
-      int num_tiles = 4, const std::string& version = "ipu2");
+  static StatusOr<IpuDeviceMeshManager> CreateIpuModelManager(
+      int num_devices = 1, int num_tiles = 4,
+      const std::string& version = "ipu2");
 
   /** CPU model manager. */
-  static IpuDeviceMeshManager createCpuManager();
+  static StatusOr<IpuDeviceMeshManager> CreateCpuManager();
 
-  /** Is there any local IPU hardware available? */
-  static bool hasLocalIpuHardware() noexcept;
+  /** Is there any IPU hardware available? */
+  static bool IsIpuHardwareAvailable() noexcept;
+  /** How many IPUs hardware are available? */
+  static std::size_t NumIpuHardwareAvailable() noexcept;
 
   /** Size of the IPU mesh */
   std::size_t size() const noexcept { return m_meshes.size(); }
@@ -197,30 +233,43 @@ class IpuDeviceMeshManager {
   std::size_t count(std::size_t mesh_size = 1) const noexcept;
 
   /** Get the default mesh for a given number of IPUs required. */
-  const IpuDeviceMesh& defaultMesh(std::size_t num_ipus) const;
+  const IpuDeviceMesh& default_mesh(std::size_t num_ipus) const;
   /** Convert IPU mesh Id to index in the manager. */
-  std::size_t fromMeshIdToIndex(IdType mesh_id) const;
+  std::size_t FromMeshIdToIndex(IdType mesh_id) const;
   /** Get overlapping IPU mesh ids. */
-  const std::vector<IdType>& overlappingMeshIds(IdType mesh_id) const;
+  const std::vector<IdType>& OverlappingMeshIds(IdType mesh_id) const;
 
   // Mesh management.
   /** Attach a mesh. */
-  bool attach(IdType mesh_id, bool force_detach_overlapping = true) const;
+  bool Attach(IdType mesh_id, bool force_detach_overlapping = true) const;
   /** Is a mesh already attached? */
-  bool isAttached(IdType mesh_id) const;
+  bool IsAttached(IdType mesh_id) const;
+  /** (Try) attaching all single IPUs. Returning False if one single IPUs fails
+   * to attach. */
+  bool AttachAll() const;
+
   /** Detach a mesh. */
-  void detach(IdType mesh_id) const;
+  void Detach(IdType mesh_id) const;
   /** Detach all IPU meshes. */
-  void detachAll() const;
+  void DetachAll() const;
 
  private:
   /** Create from a collection of IPU meshes. */
   IpuDeviceMeshManager(std::vector<IpuDeviceMesh> meshes);
 
+  /** Create IPU manager with all IPUs. */
+  static StatusOr<IpuDeviceMeshManager> CreateIpuManagerWithAll();
+  /** Filter, keeping only visible devices.
+   * @return New IPU mesh manager with only visible devices.
+   */
+  IpuDeviceMeshManager FilterVisibleDevices(
+      const std::set<int>& visible_devices);
+  IpuDeviceMeshManager FilterVisibleDevices(int start_id, int end_id);
+
   /** IPU meshes available. */
   std::vector<IpuDeviceMesh> m_meshes;
   /** Map caching mesh id to index. */
-  std::unordered_map<IdType, std::size_t> m_mesh_it_to_index_map;
+  std::unordered_map<IdType, std::size_t> m_mesh_id_to_index_map;
   /** Map caching overlapping regions: id => vector of overlapping ids. */
   std::unordered_map<IdType, std::vector<IdType>> m_mesh_overlap_map;
 

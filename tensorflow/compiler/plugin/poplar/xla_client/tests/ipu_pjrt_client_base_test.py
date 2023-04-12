@@ -34,7 +34,8 @@ ops = xla_client.ops
 xe = xla_client._xla
 
 # Skipping some tests if no local IPU hardware.
-ipu_hw_available = IpuDeviceMeshManager.has_local_ipu_hardware()
+num_ipu_hw_available = IpuDeviceMeshManager.num_ipu_hardware_available()
+ipu_hw_available = num_ipu_hw_available > 0
 
 
 class IpuPjrtClientFactoryTest(parameterized.TestCase):
@@ -80,7 +81,8 @@ class IpuPjrtClientFactoryTest(parameterized.TestCase):
   def testIpuPjRtclient__make_ipu_pjrt_options__from_flags(self):
     flags = {
         'always_rearrange_copies_on_the_host': 'true',
-        'device_count': '2',
+        'device_count': '3',
+        'visible_devices': '0,2,3',
         'model_num_tiles': '8',
         'num_io_tiles': '10',
         'use_legacy_client': 'true',
@@ -89,15 +91,16 @@ class IpuPjrtClientFactoryTest(parameterized.TestCase):
     }
     ipu_options = make_ipu_pjrt_options(flags)
     self.assertIsInstance(ipu_options, IpuPjRtOptions)
+    self.assertEqual(ipu_options.num_devices, 3)
     self.assertTrue(ipu_options.use_ipu_model)
     self.assertEqual(ipu_options.ipu_model_num_tiles, 8)
     self.assertTrue(ipu_options.always_rearrange_copies_on_the_host)
-    self.assertIsNone(ipu_options.visible_devices)
+    self.assertEqual(ipu_options.visible_devices, {0, 2, 3})
     self.assertEqual(ipu_options.execute_on_host_flops_limit, 2)
 
   def testIpuPjRtclient__make_ipu_client__from_env_variables(self):
     env = {
-        "XLA_IPU_PLATFORM_DEVICE_COUNT": "1",
+        "XLA_IPU_PLATFORM_DEVICE_COUNT": "2",
         "XLA_IPU_PLATFORM_ALWAYS_REARRANGE_COPIES_ON_THE_HOST": "false",
         "JAX_IPU_USE_MODEL": "true",
         "JAX_IPU_MODEL_NUM_TILES": "8",
@@ -107,6 +110,8 @@ class IpuPjrtClientFactoryTest(parameterized.TestCase):
     }
     client = make_ipu_client(env)
     self.assertIsInstance(client, xla_client.Client)
+    self.assertEqual(client.local_device_count(), 2)
+    self.assertEqual(client.device_count(), 2)
 
 
 class IpuPjrtClientBaseTest(parameterized.TestCase):
@@ -144,24 +149,42 @@ class IpuPjrtClientBaseTest(parameterized.TestCase):
     self.assertEqual(ipu_device.version, "ipu21")
     self.assertEqual(ipu_device.type, IpuTargetType.IPU_MODEL)
 
-  @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
+  @unittest.skipIf(num_ipu_hw_available < 2, "No IPU hardware available.")
   def testIpuPjRtclient__get_ipu_client__ipu_hardware_local_devices(self):
-    ipu_client = get_ipu_client(True, IpuPjRtOptions())
+    ipu_client = get_ipu_client(True, IpuPjRtOptions(num_devices=2))
     ipu_devices = ipu_client.local_devices()
 
-    self.assertGreater(len(ipu_devices), 0)
+    self.assertEqual(len(ipu_devices), 2)
     self.assertEqual([d.id for d in ipu_devices], list(range(len(ipu_devices))))
     self.assertEqual({d.num_tiles for d in ipu_devices}, {1472})
     self.assertEqual({d.version for d in ipu_devices}, {"ipu2"})
     self.assertEqual({d.type for d in ipu_devices}, {IpuTargetType.IPU})
 
-  @unittest.skipIf(not ipu_hw_available, "No IPU hardware available.")
+  @unittest.skipIf(num_ipu_hw_available < 4, "No IPU hardware available.")
+  def testIpuPjRtclient__get_ipu_client__visible_devices_only(self):
+    ipu_client = get_ipu_client(True, IpuPjRtOptions(visible_devices={0, 2, 3}))
+    ipu_devices = ipu_client.local_devices()
+
+    self.assertEqual(len(ipu_devices), 3)
+    self.assertEqual([d.id for d in ipu_devices], list(range(len(ipu_devices))))
+    self.assertEqual([d.local_hardware_id for d in ipu_devices], [0, 2, 3])
+    self.assertEqual({d.num_tiles for d in ipu_devices}, {1472})
+    self.assertEqual({d.version for d in ipu_devices}, {"ipu2"})
+    self.assertEqual({d.type for d in ipu_devices}, {IpuTargetType.IPU})
+
+  @unittest.skipIf(num_ipu_hw_available < 2, "No IPU hardware available.")
   def testIpuPjRtclient__get_ipu_client__multi_clients_create_delete(self):
-    ipu_client = get_ipu_client(True, IpuPjRtOptions())
+    ipu_client = get_ipu_client(True, IpuPjRtOptions(num_devices=2))
+    ipu_devices = ipu_client.local_devices()
+    self.assertEqual([d.local_hardware_id for d in ipu_devices], [0, 1])
     # Check resources are properly freed.
+    del ipu_devices
     del ipu_client
     gc.collect()
-    get_ipu_client(True, IpuPjRtOptions())
+    # New IPU client should attach the same IPUs.
+    ipu_client = get_ipu_client(True, IpuPjRtOptions(num_devices=2))
+    ipu_devices = ipu_client.local_devices()
+    self.assertEqual([d.local_hardware_id for d in ipu_devices], [0, 1])
 
 
 class IpuPjrtClientBufferTest(parameterized.TestCase):

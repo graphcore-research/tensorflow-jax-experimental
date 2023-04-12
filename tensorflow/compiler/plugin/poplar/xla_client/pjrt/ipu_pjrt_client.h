@@ -29,8 +29,11 @@ namespace poplarplugin {
  * @brief IPU PjRt client options.
  */
 struct IpuPjRtOptions {
+  // NOTE: Visible IPUs field take priority over num_devices if set.
   /** Visible IPUs: by default, all of them (or 1 if using IPU model). */
   std::optional<std::set<int>> visible_devices = std::nullopt;
+  /** Number of IPUs to use. By default, all of them. */
+  std::optional<int> num_devices = std::nullopt;
 
   /** Use IPU model. */
   bool use_ipu_model = false;
@@ -372,7 +375,7 @@ class IpuPjRtClient : public PjRtClient {
  * @brief Create an IPU device mesh manager from IPU client options.
  * @throw Error in case of invalid/unsupported option.
  */
-IpuDeviceMeshManager CreateIpuDeviceMeshManager(
+StatusOr<IpuDeviceMeshManager> CreateIpuDeviceMeshManager(
     const IpuPjRtOptions& ipu_options);
 
 /**

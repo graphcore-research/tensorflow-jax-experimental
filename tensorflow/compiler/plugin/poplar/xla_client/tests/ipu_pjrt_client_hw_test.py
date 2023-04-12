@@ -29,12 +29,17 @@ ops = xla_client.ops
 xe = xla_client._xla
 
 # Skipping some tests if no local IPU hardware.
-ipu_hw_available = IpuDeviceMeshManager.has_local_ipu_hardware()
+ipu_hw_available = IpuDeviceMeshManager.is_ipu_hardware_available()
 
 try:
   # TODO: fix error when no IPU hardware available.
   # TODO: support non-global backend?
-  ipu_backend = get_ipu_client(True, IpuPjRtOptions(use_ipu_model=False))
+  ipu_visible_devices = [4, 5, 6, 7]
+  # ipu_backend = get_ipu_client(True, IpuPjRtOptions(use_ipu_model=False))
+  ipu_backend = get_ipu_client(
+      True,
+      IpuPjRtOptions(visible_devices=set(ipu_visible_devices), use_ipu_model=False)
+  )
 except RuntimeError:
   ipu_backend = None
 
@@ -44,6 +49,7 @@ class IpuPjrtClientStateHwTest(parameterized.TestCase):
   @classmethod
   def setUpClass(cls):
     cls.backend = ipu_backend
+    cls.visible_devices = ipu_visible_devices
 
   def setUp(self):
     super(IpuPjrtClientStateHwTest, self).setUp()
@@ -53,8 +59,10 @@ class IpuPjrtClientStateHwTest(parameterized.TestCase):
     self.mesh_manager = self.backend.local_devices()[0].ipu_mesh_manager
 
   def testIpuPjRtclientHw__executable_run_info__init(self):
-    info = IpuPjRtExecutableRunInfo(mesh_id=1, executable_id=2, run_id=3)
-    self.assertEqual(info.mesh_id, 1)
+    info = IpuPjRtExecutableRunInfo(
+        mesh_id=self.visible_devices[1], executable_id=2, run_id=3
+    )
+    self.assertEqual(info.mesh_id, self.visible_devices[1])
     self.assertEqual(info.executable_id, 2)
     self.assertEqual(info.run_id, 3)
 
@@ -62,13 +70,15 @@ class IpuPjrtClientStateHwTest(parameterized.TestCase):
     state = IpuPjRtClientState.initialize(self.mesh_manager)
     self.assertIsInstance(state, IpuPjRtClientState)
     self.assertEqual(len(state), self.mesh_manager.count(1))
-    self.assertEqual([m.mesh_id for m in state.active_meshes], list(range(len(state))))
+    self.assertEqual([m.mesh_id for m in state.active_meshes], self.visible_devices)
     self.assertEqual([m.executable_id for m in state.active_meshes], [0] * len(state))
     self.assertEqual([m.run_id for m in state.active_meshes], [0] * len(state))
 
   def testIpuPjRtclientHw__client_state__update__same_mesh_topology(self):
     state = IpuPjRtClientState.initialize(self.mesh_manager)
-    run_info = IpuPjRtExecutableRunInfo(mesh_id=1, executable_id=2, run_id=3)
+    run_info = IpuPjRtExecutableRunInfo(
+        mesh_id=self.visible_devices[1], executable_id=2, run_id=3
+    )
     state_updated = state.update(run_info, self.mesh_manager)
     self.assertEqual(len(state_updated), len(state))
     # New updated mesh info.
@@ -78,7 +88,7 @@ class IpuPjrtClientStateHwTest(parameterized.TestCase):
     )
     self.assertEqual(state_updated.active_meshes[1].run_id, run_info.run_id)
     for idx in range(len(state)):
-      if idx == run_info.mesh_id:
+      if idx == 1:
         continue
       # All active meshes.
       self.assertTrue(
@@ -102,7 +112,7 @@ class IpuPjrtClientStateHwTest(parameterized.TestCase):
 
   def testIpuPjRtclientHw__client_state__update__different_topology(self):
     state = IpuPjRtClientState.initialize(self.mesh_manager)
-    mesh = self.mesh_manager.find([0, 1])
+    mesh = self.mesh_manager.find(self.visible_devices[0:2])
     run_info = IpuPjRtExecutableRunInfo(mesh_id=mesh.id, executable_id=2, run_id=3)
     state_updated = state.update(run_info, self.mesh_manager)
     self.assertEqual(len(state_updated), len(state) - 1)
@@ -114,7 +124,7 @@ class IpuPjrtClientStateHwTest(parameterized.TestCase):
     self.assertEqual(state_updated.active_meshes[-1].run_id, run_info.run_id)
     # All other meshes should have greater id.
     for m in state_updated.active_meshes:
-      self.assertGreaterEqual(m.mesh_id, 2)
+      self.assertGreaterEqual(m.mesh_id, self.visible_devices[2])
 
 
 class IpuPjrtClientBufferHwTest(parameterized.TestCase):
@@ -142,10 +152,10 @@ class IpuPjrtClientBufferHwTest(parameterized.TestCase):
     self.assertEqual(local_buffer1.unsafe_buffer_pointer(), pyval.ctypes.data)
 
 
-def make_compile_options(devices) -> xla_client.CompileOptions:
+def make_compile_options(device_ids) -> xla_client.CompileOptions:
   """Create compile options, from list (of list) of device ids.
   """
-  device_assignment = xla_extension.DeviceAssignment.create(devices)
+  device_assignment = xla_extension.DeviceAssignment.create(device_ids)
   opts = xla_client.CompileOptions()
   opts.device_assignment = device_assignment
   opts.num_partitions = device_assignment.computation_count()
@@ -183,16 +193,18 @@ class IpuPjrtClientExecutableHwTest(parameterized.TestCase):
     self.mesh_manager = self.backend.local_devices()[0].ipu_mesh_manager
 
   @parameterized.parameters([
-      [1, [0]],
-      [2, [0, 1]],
-      [4, [0, 1, 2, 3]],
+      [1, [0], ipu_visible_devices[:1]],
+      [2, [0, 1], ipu_visible_devices[:2]],
+      [4, [0, 1, 2, 3], ipu_visible_devices[:4]],
   ])
   def testIpuPjRtclientHw__get_default_device_assignment__proper_device_assignment(
-      self, num_replicas, expected_ids
+      self, num_replicas, expected_device_ids, expected_hardware_ids
   ):
     device_assignment = self.backend.get_default_device_assignment(num_replicas, 1)
     self.assertEqual(len(device_assignment), num_replicas)
-    self.assertEqual([d[0].id for d in device_assignment], expected_ids)
+    self.assertEqual([d[0].id for d in device_assignment], expected_device_ids)
+    self.assertEqual([d[0].local_hardware_id for d in device_assignment],
+                     expected_hardware_ids)
 
   @parameterized.parameters([
       [3, 1],

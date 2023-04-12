@@ -165,10 +165,10 @@ CompileOptions CreatePoplarCompileOptions(
   ExecutableBuildOptions& poplar_build_options =
       poplar_compile_options.executable_build_options;
   // Set device id to Poplar multi-ipus id.
-  poplar_build_options.set_device_ordinal(ipu_mesh.id());
+  poplar_build_options.set_device_ordinal(ipu_mesh.local_device_index());
   DeviceAssignment poplar_device_assign(
       poplar_build_options.device_assignment());
-  poplar_device_assign.Fill(ipu_mesh.id());
+  poplar_device_assign.Fill(ipu_mesh.local_device_index());
   poplar_build_options.set_device_assignment(poplar_device_assign);
   return poplar_compile_options;
 }
@@ -685,7 +685,7 @@ IpuPjRtExecutable::Execute(
   if (prev_mesh == nullptr) {
     // Make sure the proper IPU Poplar mesh is attached.
     // Forcing detaching any other mesh overlapping. TODO: proper wait?
-    m_client->ipu_mesh_manager().attach(m_device_mesh_id, true);
+    m_client->ipu_mesh_manager().Attach(m_device_mesh_id, true);
   }
   const bool load_poplar_engine =
       (prev_mesh == nullptr) || (prev_mesh->executable_id != m_executable_id);
