@@ -35,10 +35,11 @@ try:
   # TODO: fix error when no IPU hardware available.
   # TODO: support non-global backend?
   ipu_visible_devices = [4, 5, 6, 7]
-  # ipu_backend = get_ipu_client(True, IpuPjRtOptions(use_ipu_model=False))
   ipu_backend = get_ipu_client(
-      True,
-      IpuPjRtOptions(visible_devices=set(ipu_visible_devices), use_ipu_model=False)
+      asynchronous=True,
+      ipu_options=IpuPjRtOptions(
+          visible_devices=set(ipu_visible_devices), use_ipu_model=False
+      )
   )
 except RuntimeError:
   ipu_backend = None
@@ -79,7 +80,7 @@ class IpuPjrtClientStateHwTest(parameterized.TestCase):
     run_info = IpuPjRtExecutableRunInfo(
         mesh_id=self.visible_devices[1], executable_id=2, run_id=3
     )
-    state_updated = state.update(run_info, self.mesh_manager)
+    state_updated, mesh_transition = state.update(run_info, self.mesh_manager)
     self.assertEqual(len(state_updated), len(state))
     # New updated mesh info.
     self.assertEqual(state_updated.active_meshes[1].mesh_id, run_info.mesh_id)
@@ -109,12 +110,21 @@ class IpuPjrtClientStateHwTest(parameterized.TestCase):
     self.assertTrue(
         state_updated.is_active_mesh(state_updated.active_meshes[-1].mesh_id)
     )
+    # Check mesh transition: no device to attach, but load engine.
+    self.assertEqual(mesh_transition.mesh_id, self.visible_devices[1])
+    self.assertFalse(mesh_transition.require_device_attach)
+    self.assertTrue(mesh_transition.require_engine_load)
+
+    # New run => no need to load the engine.
+    state_updated, mesh_transition = state_updated.update(run_info, self.mesh_manager)
+    self.assertFalse(mesh_transition.require_device_attach)
+    self.assertFalse(mesh_transition.require_engine_load)
 
   def testIpuPjRtclientHw__client_state__update__different_topology(self):
     state = IpuPjRtClientState.initialize(self.mesh_manager)
     mesh = self.mesh_manager.find(self.visible_devices[0:2])
     run_info = IpuPjRtExecutableRunInfo(mesh_id=mesh.id, executable_id=2, run_id=3)
-    state_updated = state.update(run_info, self.mesh_manager)
+    state_updated, mesh_transition = state.update(run_info, self.mesh_manager)
     self.assertEqual(len(state_updated), len(state) - 1)
     # New updated mesh info: last one normally.
     self.assertEqual(state_updated.active_meshes[-1].mesh_id, run_info.mesh_id)
@@ -125,6 +135,11 @@ class IpuPjrtClientStateHwTest(parameterized.TestCase):
     # All other meshes should have greater id.
     for m in state_updated.active_meshes:
       self.assertGreaterEqual(m.mesh_id, self.visible_devices[2])
+
+    # Check mesh transition: attach device + load engine.
+    self.assertEqual(mesh_transition.mesh_id, mesh.id)
+    self.assertTrue(mesh_transition.require_device_attach)
+    self.assertTrue(mesh_transition.require_engine_load)
 
 
 class IpuPjrtClientBufferHwTest(parameterized.TestCase):
@@ -353,6 +368,38 @@ class IpuPjrtClientExecutableHwTest(parameterized.TestCase):
 
     # Second call?
     xla_client.execute_with_python_values_replicated(executable, outputs, self.backend)
+
+  def testIpuPjRtclientHw__executable_single_ipu__pseudo_training_loop(self):
+    mlir_module = """
+    module @jit_fn.1 {
+      func.func public @main(%arg0: tensor<2xf32>, %arg1: tensor<2xf32> {tf.aliasing_output = 1 : i32}) -> (tensor<2xf32>, tensor<2xf32>) {
+        %0 = mhlo.add %arg0, %arg1 : tensor<2xf32>
+        %1 = mhlo.subtract %arg0, %arg1 : tensor<2xf32>
+        return %0, %1 : tensor<2xf32>, tensor<2xf32>
+      }
+    }
+    """
+
+    # Numpy implementation, to compare to.
+    def np_executable(data, weights):
+      return (data + weights, data - weights)
+
+    c = xe.mlir.mlir_module_to_xla_computation(mlir_module, use_tuple_args=False)
+    executable = self.backend.compile(c)
+
+    np_data = np.array([-2, 7], dtype=np.float32)
+    np_weights = np.array([2, 3], dtype=np.float32)
+    data = self.backend.buffer_from_pyval(np_data)
+    weights = self.backend.buffer_from_pyval(np_weights)
+    num_iters = 10
+    # Pseudo "training" loop, comparing IPU and Numpy implementation.
+    for _ in range(num_iters):
+      np_data, np_weights = np_executable(np_data, np_weights)
+      data, weights = executable.execute([data, weights])
+
+    # Not blocking => check D2H transfer properly scheduled.
+    npt.assert_array_almost_equal(data, np_data)
+    npt.assert_array_almost_equal(weights, np_weights)
 
 
 if __name__ == "__main__":

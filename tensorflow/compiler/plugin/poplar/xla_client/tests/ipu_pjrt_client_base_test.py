@@ -36,6 +36,20 @@ xe = xla_client._xla
 # Skipping some tests if no local IPU hardware.
 num_ipu_hw_available = IpuDeviceMeshManager.num_ipu_hardware_available()
 ipu_hw_available = num_ipu_hw_available > 0
+# Use asynchronous backend?
+async_backend = True
+
+
+def approximate_timer(fn, N: int) -> np.ndarray:
+  """Approximate/basic benchmark timer of a Python callable.
+  """
+  timings = []
+  for _ in range(N):
+    start = time.perf_counter()
+    fn()
+    end = time.perf_counter()
+    timings.append(end - start)
+  return np.array(timings)
 
 
 class IpuPjrtClientFactoryTest(parameterized.TestCase):
@@ -123,7 +137,7 @@ class IpuPjrtClientBaseTest(parameterized.TestCase):
     ipu_options = IpuPjRtOptions(
         use_ipu_model=True, ipu_model_num_tiles=16, ipu_model_version="ipu21"
     )
-    ipu_client = get_ipu_client(True, ipu_options)
+    ipu_client = get_ipu_client(asynchronous=async_backend, ipu_options=ipu_options)
     self.assertIsInstance(ipu_client, xla_extension.Client)
     self.assertEqual(ipu_client.process_index(), 0)
     self.assertEqual(ipu_client.host_id(), 0)
@@ -135,7 +149,7 @@ class IpuPjrtClientBaseTest(parameterized.TestCase):
     ipu_options = IpuPjRtOptions(
         use_ipu_model=True, ipu_model_num_tiles=16, ipu_model_version="ipu21"
     )
-    ipu_client = get_ipu_client(True, ipu_options)
+    ipu_client = get_ipu_client(asynchronous=async_backend, ipu_options=ipu_options)
     ipu_devices = ipu_client.local_devices()
 
     self.assertEqual(ipu_client.local_device_count(), 1)
@@ -151,7 +165,9 @@ class IpuPjrtClientBaseTest(parameterized.TestCase):
 
   @unittest.skipIf(num_ipu_hw_available < 2, "No IPU hardware available.")
   def testIpuPjRtclient__get_ipu_client__ipu_hardware_local_devices(self):
-    ipu_client = get_ipu_client(True, IpuPjRtOptions(num_devices=2))
+    ipu_client = get_ipu_client(
+        asynchronous=async_backend, ipu_options=IpuPjRtOptions(num_devices=2)
+    )
     ipu_devices = ipu_client.local_devices()
 
     self.assertEqual(len(ipu_devices), 2)
@@ -162,7 +178,10 @@ class IpuPjrtClientBaseTest(parameterized.TestCase):
 
   @unittest.skipIf(num_ipu_hw_available < 4, "No IPU hardware available.")
   def testIpuPjRtclient__get_ipu_client__visible_devices_only(self):
-    ipu_client = get_ipu_client(True, IpuPjRtOptions(visible_devices={0, 2, 3}))
+    ipu_client = get_ipu_client(
+        asynchronous=async_backend,
+        ipu_options=IpuPjRtOptions(visible_devices={0, 2, 3})
+    )
     ipu_devices = ipu_client.local_devices()
 
     self.assertEqual(len(ipu_devices), 3)
@@ -174,7 +193,9 @@ class IpuPjrtClientBaseTest(parameterized.TestCase):
 
   @unittest.skipIf(num_ipu_hw_available < 2, "No IPU hardware available.")
   def testIpuPjRtclient__get_ipu_client__multi_clients_create_delete(self):
-    ipu_client = get_ipu_client(True, IpuPjRtOptions(num_devices=2))
+    ipu_client = get_ipu_client(
+        asynchronous=async_backend, ipu_options=IpuPjRtOptions(num_devices=2)
+    )
     ipu_devices = ipu_client.local_devices()
     self.assertEqual([d.local_hardware_id for d in ipu_devices], [0, 1])
     # Check resources are properly freed.
@@ -182,7 +203,9 @@ class IpuPjrtClientBaseTest(parameterized.TestCase):
     del ipu_client
     gc.collect()
     # New IPU client should attach the same IPUs.
-    ipu_client = get_ipu_client(True, IpuPjRtOptions(num_devices=2))
+    ipu_client = get_ipu_client(
+        asynchronous=async_backend, ipu_options=IpuPjRtOptions(num_devices=2)
+    )
     ipu_devices = ipu_client.local_devices()
     self.assertEqual([d.local_hardware_id for d in ipu_devices], [0, 1])
 
@@ -195,7 +218,7 @@ class IpuPjrtClientBufferTest(parameterized.TestCase):
     ipu_options = IpuPjRtOptions(
         use_ipu_model=True, ipu_model_num_tiles=4, ipu_model_version="ipu2"
     )
-    cls.backend = get_ipu_client(True, ipu_options)
+    cls.backend = get_ipu_client(asynchronous=async_backend, ipu_options=ipu_options)
 
   @classmethod
   def tearDownClass(cls):
@@ -286,7 +309,7 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
         ipu_model_version="ipu2",
         execute_on_host_flops_limit=0.0,
     )
-    cls.backend = get_ipu_client(True, ipu_options)
+    cls.backend = get_ipu_client(asynchronous=async_backend, ipu_options=ipu_options)
 
   @classmethod
   def tearDownClass(cls):
@@ -508,6 +531,66 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     self.assertFalse(out11.is_deleted())
     self.assertFalse(out12.is_deleted())
     npt.assert_array_equal(out10, data0 + (data0 * data1))
+
+  @unittest.skipUnless(async_backend, "Requires asynchronous IPU backend.")
+  def testIpuPjRtclient__executable__asynchronous_dispatch__timing_no_data_dependency(
+      self
+  ):
+    # Large enough input such that computation is not trivially fast.
+    N = 100000
+    data = np.arange(N).astype(np.float32)
+    # Simple compute graph.
+    c = xla_client.XlaBuilder(self.id())
+    p = ops.Parameter(c, 0, xla_client.shape_from_pyval(data))
+    ops.Mul(p, p)
+    executable = self.backend.compile(c.build())
+
+    num_iters = 30
+    input0 = self.backend.buffer_from_pyval(data)
+    async_timings = approximate_timer(lambda: executable.execute([input0]), num_iters)
+    block_timings = approximate_timer(
+        lambda: executable.execute([input0])[0].block_until_ready(), num_iters
+    )
+    # Async. dispatch <= 50us
+    self.assertLessEqual(np.median(async_timings), 5 * 1e-5)
+    # Async. dispatch should be at least 10x faster.
+    self.assertGreaterEqual(np.median(block_timings), 10 * np.median(async_timings))
+
+  @unittest.skipUnless(async_backend, "Requires asynchronous IPU backend.")
+  def testIpuPjRtclient__executable__asynchronous_dispatch__inout_dependency(self):
+    # Large enough input such that computation is not trivially fast.
+    N = 1000000
+    data = np.arange(N).astype(np.float32)
+    # Simple compute graph.
+    c = xla_client.XlaBuilder(self.id())
+    p = ops.Parameter(c, 0, xla_client.shape_from_pyval(data))
+    ops.Mul(p, p)
+
+    executable = self.backend.compile(c.build())
+    inputs = [self.backend.buffer_from_pyval(data)]
+    num_iters = 30
+    # "pre-warming"
+    inputs = executable.execute(inputs)
+    inputs = executable.execute(inputs)
+    inputs[0].block_until_ready()
+
+    start = time.perf_counter()
+    for _ in range(num_iters):
+      # NOTE: erasing previous buffer! Checking usage hold.
+      # Classic "training" loop pattern!
+      inputs = executable.execute(inputs)
+    async_timing = time.perf_counter() - start
+    inputs[0].block_until_ready()
+
+    start = time.perf_counter()
+    for _ in range(num_iters):
+      inputs = executable.execute(inputs)
+      inputs[0].block_until_ready()
+    block_timing = time.perf_counter() - start
+
+    # Checking async. dispatch much faster than blocking (and <50us).
+    self.assertLessEqual(async_timing / num_iters, 5 * 1e-5)
+    self.assertLessEqual(async_timing * 10, block_timing)
 
 
 if __name__ == "__main__":

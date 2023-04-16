@@ -194,6 +194,18 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
       .def_readwrite("executable_id", &IpuPjRtMeshState::executable_id)
       .def_readwrite("run_id", &IpuPjRtMeshState::run_id);
 
+  py::class_<IpuPjRtMeshTransition>(m, "IpuPjRtMeshTransition")
+      .def(py::init<>())
+      .def_readwrite("mesh_id", &IpuPjRtMeshTransition::mesh_id)
+      .def_readwrite("require_device_attach",
+                     &IpuPjRtMeshTransition::require_device_attach)
+      .def_readwrite("require_engine_load",
+                     &IpuPjRtMeshTransition::require_engine_load)
+      .def_property_readonly("num_mesh_blocking_events",
+                             [](const IpuPjRtMeshTransition& t) {
+                               return t.mesh_blocking_events.size();
+                             });
+
   py::class_<IpuPjRtClientState>(m, "IpuPjRtClientState")
       .def(py::init<>())
       .def("__len__", &IpuPjRtClientState::size)

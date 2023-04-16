@@ -15,6 +15,7 @@ limitations under the License.
 #pragma once
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_device_mesh.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_buffer.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_client_state.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_device.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_executable.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/utils.h"
@@ -59,72 +60,6 @@ struct IpuPjRtOptions {
   /* If true (default), prefetching of data for data streams on the host will be
     overlapped with execution on the IPU.*/
   bool prefetch_data_streams = true;
-};
-
-/**
- * @brief IPU (active) mesh state.
- *
- * This data structure is describing the state of a mesh,
- * with id, executable loaded and latest run id.
- */
-struct IpuPjRtMeshState {
- public:
-  /** IPU mesh id */
-  int mesh_id;
-  /** Executable loaded (none by default). */
-  int executable_id = 0;
-  /** Latest run id (none by default). */
-  int run_id = 0;
-
-  /** Latest run buffers reference. Useful for marking on-device as expired.
-   * NOTE: updated at every run, to keep track of status of former buffers.
-   */
-  std::shared_ptr<IpuPjRtRunOutputsRef> run_outputs_ref{nullptr};
-  /** Latest run status (PjRt future). */
-  std::optional<PjRtFuture<Status>> run_status = std::nullopt;
-};
-
-/**
- * @brief IPU PjRt client state: summary of the status of all IPUs.
- *
- * NOTE: as the IPU client is asynchronous, the state represents the last
- * queued operation on the IPU, not necessarily the present state (IPUs
- * attached, ...).
- */
-class IpuPjRtClientState {
- public:
-  IpuPjRtClientState() = default;
-
-  /**
-   * @brief Create initial state, with all individual IPUs (extracted from the
-   * IPU mesh manager).
-   */
-  static IpuPjRtClientState Initialize(
-      const IpuDeviceMeshManager& ipu_mesh_manager);
-  /**
-   * @brief Update a state with executable run info, creating a new instance.
-   * Active meshes in the state needs to run on a different mesh configuration.
-   */
-  IpuPjRtClientState Update(const IpuPjRtExecutableRunInfo& run_info,
-                            const IpuDeviceMeshManager& ipu_mesh_manager) const;
-  /** Is a mesh active? */
-  bool IsActiveMesh(int mesh_id) const;
-
-  /** Find an active mesh by mesh id. */
-  const IpuPjRtMeshState* FindByMeshId(int mesh_id) const noexcept;
-  /** Find an active mesh by executable id. */
-  const IpuPjRtMeshState* FindByExecutableId(int executable_id) const noexcept;
-
-  /** Get client state active meshes. */
-  const std::vector<IpuPjRtMeshState>& active_meshes() const {
-    return m_active_meshes;
-  }
-  /** Number of active meshes. */
-  std::size_t size() const noexcept { return m_active_meshes.size(); }
-
- private:
-  /** Active/attached IPU meshes. */
-  std::vector<IpuPjRtMeshState> m_active_meshes;
 };
 
 /**
@@ -318,13 +253,12 @@ class IpuPjRtClient : public PjRtClient {
    * @brief Update the IPU client state with a new executable run.
    * This function is thread-safe, blocking any other modification on the state.
    *
-   * It returns: (run_info, previous_state, new_state).
-   *
-   * TODO: pass the PjRtFuture as well.
+   * @returns (run info, mesh transition info).
    */
-  std::tuple<IpuPjRtExecutableRunInfo, IpuPjRtClientState, IpuPjRtClientState>
-  UpdateClientState(int mesh_id, int executable_id,
-                    std::shared_ptr<IpuPjRtRunOutputsRef> run_outputs_ref);
+  std::pair<IpuPjRtExecutableRunInfo, IpuPjRtMeshTransition> UpdateClientState(
+      int mesh_id, int executable_id,
+      std::shared_ptr<IpuPjRtRunOutputsRef> run_outputs_ref,
+      tfrt::AsyncValueRef<CpuEvent> execute_event);
 
   /**
    * @brief Should we run an IPU XLA computation directly on HOST? For

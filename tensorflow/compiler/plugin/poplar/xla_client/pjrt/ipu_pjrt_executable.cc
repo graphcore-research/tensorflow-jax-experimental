@@ -14,6 +14,8 @@ limitations under the License.
 ==============================================================================*/
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_executable.h"
 
+#include <type_traits>
+
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/inlined_vector.h"
 #include "tensorflow/compiler/plugin/poplar/driver/poplar_executable.h"
@@ -26,6 +28,14 @@ namespace xla {
 namespace poplarplugin {
 
 namespace {
+
+// A few static checks on classes, to make sure we don't need to copy around.
+static_assert(std::is_nothrow_move_constructible_v<IpuPjRtRunState>);
+static_assert(std::is_nothrow_move_assignable_v<IpuPjRtRunState>);
+// static_assert(std::is_nothrow_move_constructible_v<IpuPjRtExecutableRunInfo>);
+// static_assert(std::is_nothrow_move_assignable_v<IpuPjRtExecutableRunInfo>);
+// static_assert(std::is_nothrow_move_constructible_v<IpuPjRtMeshTransition>);
+// static_assert(std::is_nothrow_move_assignable_v<IpuPjRtMeshTransition>);
 
 /**
  * @brief Check all input buffers used for streaming variables are valid (i.e.
@@ -229,7 +239,8 @@ IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
   IpuPjRtRunReplicaInputs inputs;
   // Highly inspired by TFRT CPU client/executable handling of buffers.
   const auto num_inputs = inbuffers.size();
-  inputs.host_buffers.reserve(num_inputs);
+  inputs.host_buffers_hold.reserve(num_inputs);
+  inputs.host_tracked_buffers.reserve(num_inputs);
   inputs.host_deps.reserve(num_inputs);
   // Extract host input buffers (and input events).
   for (std::size_t idx = 0; idx < num_inputs; ++idx) {
@@ -250,12 +261,14 @@ IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
       if (!ev.IsAvailable()) {
         inputs.host_deps.push_back(ev.CopyRCRef());
       }
+      // TODO: handle buffer donation.
     }
     // Mark on-device input buffer as expired (i.e. input buffer donation).
     ipu_buffer->status()->MarkOnDeviceExpired();
     // Not supporting multiple buffers for now.
     CHECK_EQ(host_buffer_hold->Buffers().size(), 1);
-    inputs.host_buffers.emplace_back(std::move(host_buffer_hold));
+    inputs.host_tracked_buffers.push_back(host_buffer_hold.buffer());
+    inputs.host_buffers_hold.emplace_back(std::move(host_buffer_hold));
   }
   return inputs;
 }
@@ -272,7 +285,7 @@ void IpuPjRtRunReplicaInputs::ConnectStreamCallbacks(
       engine->connectStreamToCallback(
           inname, replica,
           std::make_unique<IpuInputStreamCallback>(
-              host_buffers[i].buffer()->Buffers()[0]));
+              host_tracked_buffers[i]->Buffers()[0]));
     }
   }
 }
@@ -286,11 +299,29 @@ void IpuPjRtRunReplicaInputs::ConnectH2DStreamDonatedBuffers(
     const auto& inname = ininfo.Handles()[0];
     if (ininfo.IsResource()) {
       // Connect host buffer to stream to SRAM.
-      const auto& inbuffer = host_buffers[i].buffer()->Buffers()[0];
+      const auto& inbuffer = host_tracked_buffers[i]->Buffers()[0];
       engine->connectStreamToCallback(
           inname, replica, std::make_unique<IpuInputStreamCallback>(inbuffer));
     }
   }
+}
+
+void IpuPjRtRunReplicaInputs::ConvertBufferHold(
+    tfrt::AsyncValueRef<CpuEvent> execute_event) {
+  for (TfrtCpuBuffer::ScopedHold& b : this->host_buffers_hold) {
+    if (b.type() == TfrtCpuBuffer::ScopedHold::kUsage) {
+      // Convert usage hold into usage event (using execute event).
+      std::array<tfrt::AsyncValueRef<CpuEvent>, 1> usage_events{
+          execute_event.CopyRef()};
+      b.ConvertUsageHold(absl::MakeSpan(usage_events));
+    } else {
+      // TODO: handle host buffer donation.
+      // CHECK(b.type() == TfrtCpuBuffer::ScopedHold::kDonation);
+      // b.ConfirmDonation();
+    }
+  }
+  // Clear the collection of buffer holds.
+  this->host_buffers_hold.clear();
 }
 
 StatusOr<IpuPjRtRunReplicaOutputs>
@@ -356,6 +387,28 @@ void IpuPjRtRunReplicaOutputs::ConnectStreamCallbacks(
           std::make_unique<IpuOutputStreamCallback>(raw_host_buffers[i]));
     }
   }
+}
+
+IpuPjRtRunState::IpuPjRtRunState(IpuPjRtRunState&& rhs) noexcept
+    : run_info{std::move(rhs.run_info)},
+      mesh_transition{std::move(rhs.mesh_transition)},
+      all_inputs{std::move(rhs.all_inputs)},
+      all_outputs{std::move(rhs.all_outputs)},
+      execute_event{std::move(rhs.execute_event)},
+      random_seed{std::move(rhs.random_seed)},
+      inputs_donated_location{std::move(rhs.inputs_donated_location)} {
+  // Manual implementation. tfrt::RCReference not movable_noexcept
+}
+IpuPjRtRunState& IpuPjRtRunState::operator=(IpuPjRtRunState&& rhs) noexcept {
+  // Manual implementation. tfrt::RCReference not movable_noexcept
+  run_info = std::move(rhs.run_info);
+  mesh_transition = std::move(rhs.mesh_transition);
+  all_inputs = std::move(rhs.all_inputs);
+  all_outputs = std::move(rhs.all_outputs);
+  execute_event = std::move(rhs.execute_event);
+  random_seed = std::move(rhs.random_seed);
+  inputs_donated_location = std::move(rhs.inputs_donated_location);
+  return *this;
 }
 
 StatusOr<IpuPjRtRunState> IpuPjRtRunState::CreateWithIOBuffers(
@@ -424,6 +477,13 @@ IpuPjRtRunState::CreateOutputIpuPjRtBuffers(
   return all_pjrt_outputs;
 }
 
+void IpuPjRtRunState::ConvertInputBufferHold() {
+  const auto num_replicas = this->num_replicas();
+  for (std::size_t idx = 0; idx < num_replicas; ++idx) {
+    all_inputs[idx].ConvertBufferHold(this->execute_event);
+  }
+}
+
 StatusOr<std::shared_ptr<IpuPjRtRunOutputsRef>>
 IpuPjRtRunOutputsRef::CreateAndAssign(
     const std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>&
@@ -480,11 +540,12 @@ bool IpuPjRtRunOutputsRef::IsAnyOnDeviceExpired() const noexcept {
 
 /////////////////////////////////////////////////////////////////////////////////////////
 IpuPjRtExecutable::IpuPjRtExecutable(
-    int64_t executable_id,
+    bool asynchronous, int64_t executable_id,
     std::unique_ptr<PjRtStreamExecutorExecutable> ipu_se_executable,
     std::unique_ptr<TfrtCpuExecutable> host_executable,
     const CompileOptions& compile_options, IpuPjRtClient* client)
-    : m_executable_id{executable_id},
+    : m_asynchronous_run{asynchronous},
+      m_executable_id{executable_id},
       m_ipu_se_executable{std::move(ipu_se_executable)},
       m_host_executable{std::move(host_executable)},
       m_compile_options{compile_options},
@@ -515,15 +576,13 @@ IpuPjRtExecutable::IpuPjRtExecutable(
   CHECK_GT(m_devices.size(), 0);
   CHECK_NOTNULL(GetBaseExecutable());
   CHECK(m_compile_options.executable_build_options.has_device_assignment());
-}
-IpuPjRtExecutable::~IpuPjRtExecutable() {
-  // Mark last run on-device expired, and nullify ptr.
-  // Avoid error if trying to fetch on-device values.
-  if (m_last_run_outputs_ref) {
-    m_last_run_outputs_ref->MarkOnDeviceExpired();
-    m_last_run_outputs_ref->executable = nullptr;
+
+  // Start execute thread in asynchronous case.
+  if (m_asynchronous_run) {
+    m_execute_thread = std::thread(&IpuPjRtExecutable::ExecuteAsyncLoop, this);
   }
 }
+IpuPjRtExecutable::~IpuPjRtExecutable() { this->Delete(); }
 
 PjRtClient* IpuPjRtExecutable::client() const { return m_client; }
 // Unique name for this executable, e.g., HloModule name.
@@ -585,10 +644,10 @@ IpuPjRtExecutable::Execute(
 
   auto* host_context = m_client->cpu_client()->GetHostContext();
   // Poplar executable and associated in/out mapping.
+  CHECK_NOTNULL(m_ipu_se_executable.get());
   PoplarExecutable* poplar_executable =
       GetPoplarExecutable(m_ipu_se_executable.get());
   const auto& io_aliasing_map = poplar_executable->GetInputOutputAliasingMap();
-  poplar::Engine* engine = poplar_executable->Engine();
 
   const std::size_t num_inputs = io_aliasing_map.GetEntryInputInfos().size();
   const std::size_t num_outputs = io_aliasing_map.GetEntryOutputInfos().size();
@@ -615,7 +674,7 @@ IpuPjRtExecutable::Execute(
       const auto inputs_donated_location,
       CheckInputDonatedBuffers(argument_handles, io_aliasing_map));
 
-  LOG(INFO) << "Executing IPU computation " << name()
+  LOG(INFO) << "Queuing IPU computation " << name()
             << "; num_replicas=" << num_replicas()
             << " num_partitions=" << num_partitions()
             << "; num_addressable_devices=" << num_addressable_devices
@@ -626,36 +685,38 @@ IpuPjRtExecutable::Execute(
       auto run_state,
       IpuPjRtRunState::CreateWithIOBuffers(
           argument_handles, io_aliasing_map.GetEntryOutputInfos()));
+  run_state.inputs_donated_location = inputs_donated_location;
 
   // execute_event indicates whether ipu computation is complete and whether
   // there was an error.
-  tfrt::AsyncValueRef<CpuEvent> execute_event;
-  // Synchronously call generated function.
-  execute_event = GetOrCreateReadyEvent(host_context);
+  // Different type of execute event for sync/async cases.
+  run_state.execute_event =
+      m_asynchronous_run ? tfrt::MakeConstructedAsyncValueRef<CpuEvent>(
+                               host_context)                     // Asynchronous
+                         : GetOrCreateReadyEvent(host_context);  // Synchronous
 
   // Wrapping execute even as PjRt future status.
-  std::optional<PjRtFuture<Status>> future;
-  const bool fill_future = true;
-  if (fill_future) {
-    auto done_event = tfrt::MakeUnconstructedAsyncValueRef<Status>();
-    execute_event.AndThen(
-        [done_event = done_event.CopyRef(), event = execute_event.CopyRef()]() {
-          Status s;
-          if (auto* error = event.GetErrorIfPresent()) {
-            s = InternalError("Compute error: %s", error->message);
-          }
-          done_event.emplace(std::move(s));
-        });
-    future = PjRtFuture<Status>(std::move(done_event));
-  }
+  auto done_event = tfrt::MakeUnconstructedAsyncValueRef<Status>();
+  run_state.execute_event.AndThen(
+      [done_event = done_event.CopyRef(),
+       event = run_state.execute_event.CopyRef()]() {
+        Status s;
+        if (auto* error = event.GetErrorIfPresent()) {
+          s = InternalError("Compute error: %s", error->message);
+        }
+        done_event.emplace(std::move(s));
+      });
+  auto future_status = PjRtFuture<Status>(std::move(done_event));
+
   // Returned outputs, for all replica, with IPU executable reference.
   auto outputs = run_state.CreateOutputIpuPjRtBuffers(
-      execute_event, io_aliasing_map.GetEntryOutputInfos(), m_devices, this);
+      run_state.execute_event, io_aliasing_map.GetEntryOutputInfos(), m_devices,
+      this);
   // Returned futures, for all replica.
   if (returned_futures) {
     returned_futures.value().clear();
     for (std::size_t idx = 0; idx < run_state.num_replicas(); ++idx) {
-      returned_futures.value().push_back(future.value());
+      returned_futures.value().push_back(future_status);
     }
   }
   // Run outputs reference. Implicitely assuming all output buffers have the
@@ -667,46 +728,77 @@ IpuPjRtExecutable::Execute(
 
   // Poplar engine: if null, means it should be executed on HOST directly
   // (constant, scalar, ...). NOTE: check engine after inputs status.
+  poplar::Engine* engine = poplar_executable->Engine();
   CHECK_NOTNULL(engine);
 
   // (Blocking) update of client state.
   // Use as coordination mechanism when required to load or reorganize IPUs.
-  const auto [run_info, prev_client_state, new_client_state] =
-      m_client->UpdateClientState(m_device_mesh_id, m_executable_id,
-                                  m_last_run_outputs_ref);
+  auto [run_info, mesh_transition] = m_client->UpdateClientState(
+      m_device_mesh_id, m_executable_id, m_last_run_outputs_ref,
+      run_state.execute_event.CopyRef());
+  // Move run info and mesh transition info.
+  run_state.run_info = std::move(run_info);
+  run_state.mesh_transition = std::move(mesh_transition);
+
+  // No need for inputs scoped hold => convert to usage event.
+  // NOTE: necessary, otherwise scoped hold blocking buffer delete.
+  run_state.ConvertInputBufferHold();
 
   /////////////// RUNNING POPLAR ENGINE ///////////////
   /////////////// RUNNING POPLAR ENGINE ///////////////
   /////////////// RUNNING POPLAR ENGINE ///////////////
+  if (m_asynchronous_run) {
+    // Queue the state, for async. Poplar engine run.
+    m_execute_queue.enqueue(std::move(run_state));
+  } else {
+    // Synchronous Poplar engine run.
+    this->ExecuteDeviceRun(run_state);
+  }
+  return outputs;
+}
 
-  // Should load on device => was mesh id & executable id was part of the
-  // previous state.
-  const auto prev_mesh = prev_client_state.FindByMeshId(m_device_mesh_id);
-  if (prev_mesh == nullptr) {
+void IpuPjRtExecutable::ExecuteDeviceRun(IpuPjRtRunState& run_state) {
+  // Single use of Poplar::Engine at a time!
+  std::scoped_lock l(m_poplar_engine_mutex);
+  // Poplar executable and associated in/out mapping.
+  PoplarExecutable* poplar_executable =
+      GetPoplarExecutable(m_ipu_se_executable.get());
+  const auto& io_aliasing_map = poplar_executable->GetInputOutputAliasingMap();
+  poplar::Engine* engine = poplar_executable->Engine();
+
+  // Blocking events, from same mesh (or overlapping ones).
+  tfrt::Await(run_state.mesh_transition.mesh_blocking_events);
+  if (run_state.mesh_transition.require_device_attach) {
     // Make sure the proper IPU Poplar mesh is attached.
-    // Forcing detaching any other mesh overlapping. TODO: proper wait?
+    // Forcing detaching any other mesh overlapping.
+    // TODO: proper wait for other IPU meshes?
     m_client->ipu_mesh_manager().Attach(m_device_mesh_id, true);
   }
-  const bool load_poplar_engine =
-      (prev_mesh == nullptr) || (prev_mesh->executable_id != m_executable_id);
-  if (load_poplar_engine) {
+  if (run_state.mesh_transition.require_engine_load) {
     const auto& device_mesh =
         m_client->ipu_mesh_manager().find(m_device_mesh_id);
     LOG(INFO) << "Load IPU poplar engine " << name()
-              << ", executable id: " << run_info.executable_id
+              << ", executable id: " << run_state.run_info.executable_id
               << ", on Poplar device with ID: " << m_device_mesh_id;
     // First call of the executable => load engine.
     engine->load(device_mesh.device());
   }
+  // Check input buffer status?
+  //   for (const auto& av : input_deps_avs) {
+  //   if (auto* error = av->GetErrorIfPresent()) {
+  //     execute_event.SetError(absl::StrCat(
+  //         "Error dispatching computation: %s", error->message));
+  //     return;
+  //   }
+  // }
 
   // Wait for all inputs to be ready?
   for (std::size_t idx = 0; idx < run_state.num_replicas(); ++idx) {
     tfrt::Await(run_state.all_inputs[idx].host_deps);
   }
-
   // Transfer donated input buffers to IPU.
-  if (inputs_donated_location == IpuPjRtBufferLocation::HOST) {
-    LOG(INFO) << "Transfer buffers from HOST to IPU:" << name();
+  if (run_state.inputs_donated_location == IpuPjRtBufferLocation::HOST) {
+    LOG(INFO) << "Transfer H2D buffers from HOST to IPU:" << name();
     // Connect on-device buffers H2D streams.
     run_state.ConnectH2DStreamDonatedBuffers(
         io_aliasing_map.GetEntryInputInfos(), engine);
@@ -718,10 +810,24 @@ IpuPjRtExecutable::Execute(
                                    engine);
   // Synchronous call => blocking thread!
   LOG(INFO) << "Run IPU poplar engine " << name()
-            << "; executable id: " << run_info.executable_id
-            << "; run id: " << run_info.run_id;
+            << "; executable id: " << run_state.run_info.executable_id
+            << "; run id: " << run_state.run_info.run_id;
   engine->run(PoplarProgramType::MAIN_SEQUENCE);
-  return outputs;
+}
+
+void IpuPjRtExecutable::ExecuteAsyncLoop() {
+  while (!m_executable_is_deleted.load()) {
+    // Wait for the next run state.
+    auto run_state = m_execute_queue.dequeue();
+    // Ignore empty/dummy run state.
+    if (run_state.empty()) {
+      continue;
+    }
+    // Blocking Poplar engine run.
+    this->ExecuteDeviceRun(run_state);
+    // Mark the execute event as done!
+    run_state.execute_event.SetStateConcrete();
+  }
 }
 
 // Execute the assigned replica/partition on a given `device`. Requires
@@ -762,13 +868,25 @@ IpuPjRtExecutable::ExecutePortable(
 
 // Asynchronously free resources after the last execution completes.
 void IpuPjRtExecutable::Delete() {
-  throw std::runtime_error("Not implemented `Delete` on IPU.");
+  m_executable_is_deleted.store(true);
+  if (m_asynchronous_run) {
+    // Queue empty run, just to unblock thread.
+    m_execute_queue.enqueue(IpuPjRtRunState());
+    m_execute_thread.join();
+  }
+  // Mark last run on-device expired, and nullify ptr.
+  // Avoid error if trying to fetch on-device values.
+  if (m_last_run_outputs_ref) {
+    m_last_run_outputs_ref->MarkOnDeviceExpired();
+    m_last_run_outputs_ref->executable = nullptr;
+  }
+  // Reset host and IPU executables.
+  m_ipu_se_executable.reset();
+  m_host_executable.reset();
 }
 
 // True if on-device resources associated with the executable are freed.
-bool IpuPjRtExecutable::IsDeleted() {
-  throw std::runtime_error("Not implemented `IsDeleted` on IPU.");
-}
+bool IpuPjRtExecutable::IsDeleted() { return m_executable_is_deleted.load(); }
 
 const poplar::Device& IpuPjRtExecutable::GetPoplarDevice() const {
   CHECK_GE(m_device_mesh_id, 0);
@@ -869,33 +987,45 @@ IpuPjRtExecutable::ExecuteOnHost(
 
 Status IpuPjRtExecutable::CopyDeviceToHostBuffers(
     IpuPjRtRunOutputsRef* run_outputs_ref) {
-  // TODO: executable run mutex.
   // TODO: wait until all outputs are done.
   if (run_outputs_ref->IsAnyOnDeviceExpired()) {
     return InvalidArgument(
         "IPU on-device SRAM buffers are expired. Can not copy content back to "
         "host.");
   }
-  LOG(INFO) << "Transfer on-device SRAM buffers from IPU to HOST:" << name();
-  // TODO: check if not execute on HOST?
   PoplarExecutable* poplar_executable =
       GetPoplarExecutable(m_ipu_se_executable.get());
   const auto& io_aliasing_map = poplar_executable->GetInputOutputAliasingMap();
+
+  // Block until the buffers are ready (or in error state).
+  auto& all_outputs = run_outputs_ref->output_buffers;
+  const std::size_t num_replicas = all_outputs.size();
+  const auto& output_infos = io_aliasing_map.GetEntryOutputInfos();
+  for (std::size_t replica = 0; replica < num_replicas; ++replica) {
+    const auto& replica_outputs = all_outputs[replica];
+    for (std::size_t idx = 0; idx < replica_outputs.size(); ++idx) {
+      IpuPjRtBuffer* output = replica_outputs[idx].buffer;
+      // Wait until the buffer is ready (i.e. executable run done).
+      // NOTE: blocking the main host thread (i.e. Python thread).
+      TF_RETURN_IF_ERROR(output->BlockHostUntilReady());
+    }
+  }
+
+  // Single use of Poplar::Engine at a time!
+  std::scoped_lock l(m_poplar_engine_mutex);
+  // TODO: check if not execute on HOST?
   poplar::Engine* engine = poplar_executable->Engine();
   CHECK_NOTNULL(engine);
 
-  const auto& output_infos = io_aliasing_map.GetEntryOutputInfos();
-  auto& all_outputs = run_outputs_ref->output_buffers;
-  const std::size_t num_replicas = all_outputs.size();
-  // Connect all on-device SRAM buffers.
+  // Connect all on-device SRAM buffers to engine streams.
   for (std::size_t replica = 0; replica < num_replicas; ++replica) {
     auto& replica_outputs = all_outputs[replica];
     for (std::size_t idx = 0; idx < replica_outputs.size(); ++idx) {
       IpuPjRtBuffer* output = replica_outputs[idx].buffer;
       const auto outinfo = output_infos[idx];
       if (output->location() == IpuPjRtBufferLocation::SRAM) {
-        const auto& outname = outinfo.Handles()[0];
         // Extract raw host buffer.
+        const auto& outname = outinfo.Handles()[0];
         TF_ASSIGN_OR_RETURN(auto host_buffer_hold,
                             output->GetHostBufferWithHold(
                                 TfrtCpuBuffer::ScopedHold::kUsage, true));
@@ -907,7 +1037,9 @@ Status IpuPjRtExecutable::CopyDeviceToHostBuffers(
       }
     }
   }
-  // Host blocking call.
+  LOG(INFO) << "Transfer D2H on-device SRAM buffers from IPU to HOST:"
+            << name();
+  // Host blocking call, transfering from SRAM to HOST.
   engine->run(PoplarProgramType::DEVICE_TO_HOST);
   return Status::OK();
 }

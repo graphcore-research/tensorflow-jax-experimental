@@ -20,6 +20,7 @@ poplar_cc_library(
         "ipu_device_mesh.h",
         "ipu_device.h",
         "ipu_pjrt_buffer.h",
+        "ipu_pjrt_client_state.h",
         "ipu_pjrt_client.h",
         "ipu_pjrt_device.h",
         "ipu_pjrt_executable.h",

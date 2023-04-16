@@ -210,6 +210,7 @@ bool IpuPjRtBuffer::IsOnCpu() const {
   // As we always keep an equivalent host allocated buffer, always considered
   // as being located on CPU. Avoid additional host copy, as Numpy (or other)
   // can directly acquire reference of internal host buffer.
+  // See: `AcquireExternalReference` method.
   return true;
 }
 

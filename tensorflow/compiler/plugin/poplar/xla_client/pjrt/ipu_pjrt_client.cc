@@ -51,24 +51,36 @@ IpuPjRtClientState IpuPjRtClientState::Initialize(
   return state;
 }
 
-IpuPjRtClientState IpuPjRtClientState::Update(
+std::pair<IpuPjRtClientState, IpuPjRtMeshTransition> IpuPjRtClientState::Update(
     const IpuPjRtExecutableRunInfo& run_info,
     const IpuDeviceMeshManager& ipu_mesh_manager) const {
-  // Reconstruct new IPU client state.
   IpuPjRtClientState state_updated;
+  IpuPjRtMeshTransition mesh_transition;
+  // Reconstruct new IPU client state.
   const auto mesh_id = run_info.mesh_id;
   const auto is_mesh_active = this->IsActiveMesh(mesh_id);
+  mesh_transition.mesh_id = mesh_id;
   if (is_mesh_active) {
     // Is the IPU mesh already in used? => simple case.
     for (const auto& m : m_active_meshes) {
       if (m.mesh_id == mesh_id) {
         // Update the mesh state -> executable & run_id.
-        state_updated.m_active_meshes.push_back(
-            IpuPjRtMeshState{run_info.mesh_id, run_info.executable_id,
-                             run_info.run_id, run_info.outputs_ref});
+        state_updated.m_active_meshes.push_back(IpuPjRtMeshState{
+            run_info.mesh_id, run_info.executable_id, run_info.run_id,
+            run_info.outputs_ref, run_info.execute_event.CopyRef()});
         // Mark previous on-device buffers as expired.
         if (m.run_outputs_ref) {
           m.run_outputs_ref->MarkOnDeviceExpired();
+        }
+        // Mesh transition: no need to attach, may need to load if new
+        // executable id.
+        mesh_transition.require_device_attach = false;
+        mesh_transition.require_engine_load =
+            (m.executable_id != run_info.executable_id);
+        // Previous mesh state execute event as dependency (if set up).
+        if (bool(m.execute_event) && !m.execute_event.IsAvailable()) {
+          mesh_transition.mesh_blocking_events.push_back(
+              m.execute_event.CopyRCRef());
         }
       } else {
         // Keep same IPU mesh state (i.e. same executable & run id).
@@ -85,26 +97,34 @@ IpuPjRtClientState IpuPjRtClientState::Update(
 
     for (const auto& m : m_active_meshes) {
       if (overlapping_set_ids.find(m.mesh_id) == overlapping_set_ids.end()) {
-        // Not overlapping with new IPU mesh => keep it.
+        // Not overlapping with new IPU mesh => keep it, and not blocking.
         state_updated.m_active_meshes.push_back(m);
       } else {
         // Overlapping with new IPU mesh => on-device buffers discarded.
         if (m.run_outputs_ref) {
           m.run_outputs_ref->MarkOnDeviceExpired();
         }
+        // Add mesh state execute event as dependency (if set up).
+        if (bool(m.execute_event) && !m.execute_event.IsAvailable()) {
+          mesh_transition.mesh_blocking_events.push_back(
+              m.execute_event.CopyRCRef());
+        }
       }
     }
     // Add the new IPU mesh in use.
-    state_updated.m_active_meshes.push_back(
-        IpuPjRtMeshState{run_info.mesh_id, run_info.executable_id,
-                         run_info.run_id, run_info.outputs_ref});
+    state_updated.m_active_meshes.push_back(IpuPjRtMeshState{
+        run_info.mesh_id, run_info.executable_id, run_info.run_id,
+        run_info.outputs_ref, run_info.execute_event.CopyRef()});
+    // Mesh transition: attach & load!
+    mesh_transition.require_device_attach = true;
+    mesh_transition.require_engine_load = true;
     // Sort by mesh id, for consistency.
     std::sort(
         state_updated.m_active_meshes.begin(),
         state_updated.m_active_meshes.end(),
         [](const auto& m1, const auto& m2) { return m1.mesh_id < m2.mesh_id; });
   }
-  return state_updated;
+  return std::make_pair(std::move(state_updated), std::move(mesh_transition));
 }
 
 bool IpuPjRtClientState::IsActiveMesh(int mesh_id) const {
@@ -352,7 +372,9 @@ IpuPjRtClient::IpuPjRtClient(bool asynchronous, int process_id,
   m_se_mesh_client =
       MakeIpuSEMeshClient(true, m_ipu_mesh_manager, m_options).ValueOrDie();
 
-  // TODO: client state + attach single IPUs?
+  // TODO: initialize client state + attach single IPUs?
+  LOG(INFO) << "IPU PjRt client created"
+            << "; asynchronous=" << m_asynchronous;
 }
 IpuPjRtClient::~IpuPjRtClient() {
   // Delete CPU and IPU stream executor clients.
@@ -503,8 +525,9 @@ StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
 
   // Build IPU PjRt executable, wrapping IPU and HOST executables.
   return std::unique_ptr<PjRtExecutable>(std::make_unique<IpuPjRtExecutable>(
-      m_executable_id_counter.increment(), std::move(pjrt_se_executable),
-      std::move(host_executable), options, this));
+      m_asynchronous, m_executable_id_counter.increment(),
+      std::move(pjrt_se_executable), std::move(host_executable), options,
+      this));
 }
 StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
     mlir::ModuleOp module, CompileOptions options) {
@@ -605,18 +628,22 @@ const IpuDeviceMeshManager& IpuPjRtClient::ipu_mesh_manager() const noexcept {
   return m_ipu_mesh_manager;
 }
 
-std::tuple<IpuPjRtExecutableRunInfo, IpuPjRtClientState, IpuPjRtClientState>
+std::pair<IpuPjRtExecutableRunInfo, IpuPjRtMeshTransition>
 IpuPjRtClient::UpdateClientState(
     int mesh_id, int executable_id,
-    std::shared_ptr<IpuPjRtRunOutputsRef> run_outputs_ref) {
+    std::shared_ptr<IpuPjRtRunOutputsRef> run_outputs_ref,
+    tfrt::AsyncValueRef<CpuEvent> execute_event) {
   // Make sure we can't have multiple updates in parallel.
   std::lock_guard<std::mutex> lk(m_client_state_mutex);
-  const auto current_state = m_client_state;
-  // TODO: pass PjRtFuture as well (or generate here?)
-  const auto run_info = IpuPjRtExecutableRunInfo{
-      mesh_id, executable_id, next_run_id(), std::move(run_outputs_ref)};
-  m_client_state = m_client_state.Update(run_info, m_ipu_mesh_manager);
-  return std::make_tuple(run_info, current_state, m_client_state);
+  // Execute run info to use to state update.
+  auto run_info = IpuPjRtExecutableRunInfo{
+      mesh_id, executable_id, next_run_id(), std::move(run_outputs_ref),
+      std::move(execute_event)};
+  auto [updated_client_state, mesh_transition] =
+      m_client_state.Update(run_info, m_ipu_mesh_manager);
+  // Update current state + returns (run info, mesh transition).
+  m_client_state = std::move(updated_client_state);
+  return std::make_pair(std::move(run_info), std::move(mesh_transition));
 }
 
 StatusOr<bool> IpuPjRtClient::IsIpuExecutableRunOnHost(

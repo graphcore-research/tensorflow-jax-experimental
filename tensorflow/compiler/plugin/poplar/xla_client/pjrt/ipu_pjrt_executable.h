@@ -19,6 +19,8 @@ limitations under the License.
 #include "tensorflow/compiler/plugin/poplar/driver/poplar_executable.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_device_mesh.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_buffer.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_client_state.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/utils.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
 #include "tensorflow/compiler/xla/pjrt/tfrt_cpu_pjrt_client.h"
@@ -46,29 +48,20 @@ Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable,
                                   const CompileOptions& compile_options);
 
 /**
- * @brief Representing basic info on a single run of an IPU PjRt executable.
- */
-struct IpuPjRtExecutableRunInfo {
-  /** IPU mesh id on which is executed the program. */
-  int mesh_id = 0;
-  /** Executable id, assigned by the client. */
-  int executable_id = 0;
-  /** Run id, assigned by the client. */
-  int run_id = 0;
-
-  /** (Optional) reference to run outputs */
-  std::shared_ptr<IpuPjRtRunOutputsRef> outputs_ref{nullptr};
-};
-
-/**
  * @brief IPU PjRt run raw input buffers (and input events) for a single
  * replica.
  */
 struct IpuPjRtRunReplicaInputs {
-  /** Host/CPU input (scoped) buffers. */
-  absl::InlinedVector<TfrtCpuBuffer::ScopedHold, 4> host_buffers;
+  /** Host/CPU input tracked buffers. */
+  absl::InlinedVector<std::shared_ptr<TrackedTfrtCpuDeviceBuffer>, 4>
+      host_tracked_buffers;
   /** Definition events from inputs. */
   std::vector<tfrt::RCReference<tfrt::AsyncValue>> host_deps;
+  /** Host/CPU input buffers scoped hold. Usage or Donation depending of input
+   * type. Temporary for state construction, emptied and converted to usage
+   * event once call is queued.
+   */
+  absl::InlinedVector<TfrtCpuBuffer::ScopedHold, 4> host_buffers_hold;
 
   /**
    * @brief Build instance from a span of replica IPU PjRt input buffers.
@@ -84,6 +77,12 @@ struct IpuPjRtRunReplicaInputs {
   void ConnectH2DStreamDonatedBuffers(
       const std::vector<InputOutputAliasingMap::InputInfo>& input_infos,
       int replica, poplar::Engine* engine);
+
+  /**
+   * @brief Convert buffer usage or donation holds to usage event (or confirmed
+   * donation).
+   */
+  void ConvertBufferHold(tfrt::AsyncValueRef<CpuEvent> execute_event);
 };
 
 /**
@@ -124,24 +123,42 @@ struct IpuPjRtRunReplicaOutputs {
  * necessary to do a single IPU engine run.
  */
 struct IpuPjRtRunState {
-  /** Base run info (id, ...). */
+  /** Base run info (ids, ...). */
   IpuPjRtExecutableRunInfo run_info;
+  /** Mesh transition info, prior to engine run. */
+  IpuPjRtMeshTransition mesh_transition;
+
   /** All replicas input buffers. Size: num_replicas. */
   std::vector<IpuPjRtRunReplicaInputs> all_inputs;
   /** All replicas outputs buffers. Size: num_replicas. */
   std::vector<IpuPjRtRunReplicaOutputs> all_outputs;
 
-  /** TFRT execute event (use as definition event for output buffers.) */
+  /** TFRT execute event (use as definition event for output buffers) */
   tfrt::AsyncValueRef<CpuEvent> execute_event;
-  /** Associated PjRt future status. */
-  std::optional<PjRtFuture<Status>> future_status;
   /** Custom random seed. TODO: remove from executable? */
   int64_t random_seed = 0;
+
+  /** Location of IPU donated buffer: HOST or SRAM. */
+  IpuPjRtBufferLocation inputs_donated_location =
+      IpuPjRtBufferLocation::UNKNOWN;
+
+  IpuPjRtRunState() = default;
+  // Move only data structure, no copy.
+  // Help making sure we are not doing anything wrong!
+  IpuPjRtRunState(IpuPjRtRunState&&) noexcept;
+  IpuPjRtRunState& operator=(IpuPjRtRunState&&) noexcept;
+  IpuPjRtRunState(const IpuPjRtRunState&) = delete;
+  IpuPjRtRunState& operator=(const IpuPjRtRunState&) = delete;
 
   /** Number of replicas. */
   std::size_t num_replicas() const {
     CHECK_EQ(all_inputs.size(), all_outputs.size());
     return all_inputs.size();
+  }
+
+  /** Is the run state empty? */
+  bool empty() const noexcept {
+    return all_inputs.empty() && all_outputs.empty();
   }
 
   /**
@@ -177,6 +194,12 @@ struct IpuPjRtRunState {
       const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
       std::vector<PjRtDevice*> ipu_devices,
       IpuPjRtExecutable* executable) const;
+
+  /**
+   * @brief Convert input buffer hold (usage or donation) to usage event (or
+   * confirmed donation). Using run state execute event.
+   */
+  void ConvertInputBufferHold();
 };
 
 /**
@@ -224,7 +247,7 @@ class IpuPjRtExecutable : public PjRtExecutable {
    * and optional CPU/host executable.
    */
   explicit IpuPjRtExecutable(
-      int64_t executable_id,
+      bool asynchronous, int64_t executable_id,
       std::unique_ptr<PjRtStreamExecutorExecutable> ipu_se_executable,
       std::unique_ptr<TfrtCpuExecutable> host_executable,
       const CompileOptions& compile_options, IpuPjRtClient* client);
@@ -315,10 +338,16 @@ class IpuPjRtExecutable : public PjRtExecutable {
 
   /// IPU specific APIs.
   /**
-   * @brief Copy/synchronize on-device SRAM buffers to host.
-   * NOTE: this method is blocking/synchronous.
+   * @brief Copy/synchronize on-device SRAM buffers to HOST.
+   * NOTE: this method is blocking/synchronous the main host thread.
    */
   Status CopyDeviceToHostBuffers(IpuPjRtRunOutputsRef* run_outputs_ref);
+
+  /**
+   * @brief Synchronous IPU Poplar run.
+   * @param run_state Full run state describing run IO + flags.
+   */
+  void ExecuteDeviceRun(IpuPjRtRunState& run_state);
 
  private:
   friend class IpuPjRtClient;
@@ -345,6 +374,13 @@ class IpuPjRtExecutable : public PjRtExecutable {
       const ExecuteOptions& options,
       std::optional<std::vector<PjRtFuture<Status>>>& returned_futures);
 
+  /** Execute loop fucntion, used in the asynchronous case.
+   * This method is run in a separate execute thread.
+   */
+  void ExecuteAsyncLoop();
+
+  /** Asynchronous execution on IPU? */
+  bool m_asynchronous_run = false;
   /** (Global/unique) executable id. */
   int64_t m_executable_id;
   /** Underlying IPU/device stream executor executable. */
@@ -353,6 +389,8 @@ class IpuPjRtExecutable : public PjRtExecutable {
   std::unique_ptr<TfrtCpuExecutable> m_host_executable;
   /** (Original) compilation options of the executable. */
   CompileOptions m_compile_options;
+  /** Poplar engine mutex. To be on the safe side for D2H/H2D transfers. */
+  mutable std::mutex m_poplar_engine_mutex;
 
   /** PjRt client which compiled the executable. */
   IpuPjRtClient* m_client;
@@ -363,6 +401,13 @@ class IpuPjRtExecutable : public PjRtExecutable {
       m_addressable_device_logical_ids;
   /** IPU mesh device id. */
   int m_device_mesh_id = -1;
+
+  /** Asynchronous execute thread. */
+  std::thread m_execute_thread;
+  /** Asynchronous execute queue. */
+  ThreadSafeQueue<IpuPjRtRunState> m_execute_queue;
+  /** Executable delete status. */
+  std::atomic_bool m_executable_is_deleted{false};
 
   /** Last run output buffers reference.
    * NOTE: this is useful in the case `IpuPjRtExecutable` instance gets deleted
