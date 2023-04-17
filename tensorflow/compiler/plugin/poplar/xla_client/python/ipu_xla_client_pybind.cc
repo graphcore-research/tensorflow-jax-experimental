@@ -226,6 +226,11 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
       .def_property_readonly("ipu_mesh_manager",
                              &IpuPjRtDevice::ipu_mesh_manager,
                              py::return_value_policy::reference_internal)
+      .def_property_readonly("is_ipu_model",
+                             [](const IpuPjRtDevice& d) {
+                               return d.device_info().type() ==
+                                      poplar::TargetType::IPU_MODEL;
+                             })
       .def_property_readonly(
           "type", [](const IpuPjRtDevice& d) { return d.device_info().type(); })
       .def_property_readonly(  // backward compatible with legacy client.

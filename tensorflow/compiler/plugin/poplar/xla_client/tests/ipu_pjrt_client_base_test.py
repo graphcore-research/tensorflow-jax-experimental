@@ -104,7 +104,7 @@ class IpuPjrtClientFactoryTest(parameterized.TestCase):
     ipu_config = make_ipu_legacy_config(flags)
     self.assertEqual(ipu_config.num_ipus, 1)
 
-  def testIpuPjRtclient__make_ipu_pjrt_options__from_flags(self):
+  def testIpuPjRtclient__make_ipu_pjrt_options__proper_result_from_flags(self):
     flags = {
         'always_rearrange_copies_on_the_host': 'true',
         'device_count': '3',
@@ -123,6 +123,12 @@ class IpuPjrtClientFactoryTest(parameterized.TestCase):
     self.assertTrue(ipu_options.always_rearrange_copies_on_the_host)
     self.assertEqual(ipu_options.visible_devices, {0, 2, 3})
     self.assertEqual(ipu_options.execute_on_host_flops_limit, 2)
+
+  def testIpuPjRtclient__make_ipu_pjrt_options__proper_handling_empty_visible_devices(
+      self
+  ):
+    ipu_options = make_ipu_pjrt_options({'visible_devices': ''})
+    self.assertIsNone(ipu_options.visible_devices)
 
   def testIpuPjRtclient__make_ipu_client__from_env_variables(self):
     env = {

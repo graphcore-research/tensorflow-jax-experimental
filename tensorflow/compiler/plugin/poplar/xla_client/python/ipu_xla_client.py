@@ -67,7 +67,7 @@ def int_if_not_none(v):
 
 
 def parse_visible_devices(v):
-  if v is None:
+  if v is None or len(v) == 0:
     return None
   visible_devices = set(sorted([int(k) for k in v.split(",")]))
   return visible_devices
