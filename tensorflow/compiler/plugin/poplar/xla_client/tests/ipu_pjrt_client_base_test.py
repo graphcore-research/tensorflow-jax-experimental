@@ -92,6 +92,18 @@ class IpuPjrtClientFactoryTest(parameterized.TestCase):
     self.assertEqual(ipu_config.num_ipus, 2)
     self.assertEqual(ipu_config.num_io_tiles, 10)
 
+  def testIpuPjRtclient__make_ipu_legacy_config__proper_default_device_count(self):
+    flags = {
+        'always_rearrange_copies_on_the_host': 'true',
+        'device_count': '-1',
+        'model_num_tiles': '8',
+        'num_io_tiles': '10',
+        'use_legacy_client': 'true',
+        'use_model': 'true'
+    }
+    ipu_config = make_ipu_legacy_config(flags)
+    self.assertEqual(ipu_config.num_ipus, 1)
+
   def testIpuPjRtclient__make_ipu_pjrt_options__from_flags(self):
     flags = {
         'always_rearrange_copies_on_the_host': 'true',
@@ -117,7 +129,7 @@ class IpuPjrtClientFactoryTest(parameterized.TestCase):
         "XLA_IPU_PLATFORM_DEVICE_COUNT": "2",
         "XLA_IPU_PLATFORM_ALWAYS_REARRANGE_COPIES_ON_THE_HOST": "false",
         "JAX_IPU_USE_MODEL": "true",
-        "JAX_IPU_MODEL_NUM_TILES": "8",
+        "JAX_IPU_MODEL_NUM_TILES": "16",
         "JAX_IPU_USE_LEGACY_CLIENT": "false",
         "XLA_IPU_PLATFORM_NUM_IO_TILES": "0",
         "PATH": "blalba"
@@ -126,6 +138,24 @@ class IpuPjrtClientFactoryTest(parameterized.TestCase):
     self.assertIsInstance(client, xla_client.Client)
     self.assertEqual(client.local_device_count(), 2)
     self.assertEqual(client.device_count(), 2)
+    for d in client.devices():
+      self.assertIsInstance(d, IpuPjRtDevice)
+      self.assertEqual(d.num_tiles, 16)
+
+  def testIpuPjRtclient__make_ipu_client__ipu_model_default_num_devices(self):
+    env = {
+        "XLA_IPU_PLATFORM_DEVICE_COUNT": "-1",
+        "XLA_IPU_PLATFORM_ALWAYS_REARRANGE_COPIES_ON_THE_HOST": "false",
+        "JAX_IPU_USE_MODEL": "true",
+        "JAX_IPU_MODEL_NUM_TILES": "16",
+        "JAX_IPU_USE_LEGACY_CLIENT": "false",
+        "XLA_IPU_PLATFORM_NUM_IO_TILES": "0",
+        "PATH": "blalba"
+    }
+    client = make_ipu_client(env)
+    self.assertIsInstance(client, xla_client.Client)
+    self.assertEqual(client.local_device_count(), 1)
+    self.assertEqual(client.device_count(), 1)
 
 
 class IpuPjrtClientBaseTest(parameterized.TestCase):

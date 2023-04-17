@@ -96,7 +96,9 @@ def make_ipu_legacy_config(flags: Dict[str, str]) -> IpuConfig:
   """Create IPU legacy config instance from env. flags.
   """
   ipu_config = _ipu_xla.IpuConfig()
-  ipu_config.num_ipus = int(flags.get("device_count", 1))
+  # By default, single IPU device visible.
+  device_count = int(flags.get("device_count", 1))
+  ipu_config.num_ipus = device_count if device_count > 0 else 1
   ipu_config.always_rearrange_copies_on_the_host = parse_bool(
       flags.get("always_rearrange_copies_on_the_host", False)
   )

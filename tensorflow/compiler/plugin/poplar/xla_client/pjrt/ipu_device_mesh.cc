@@ -132,6 +132,10 @@ StatusOr<IpuDeviceMeshManager> IpuDeviceMeshManager::CreateCpuManager() {
 
 StatusOr<IpuDeviceMeshManager> IpuDeviceMeshManager::CreateIpuModelManager(
     int num_devices, int num_tiles, const std::string& version) {
+  // By default, 1 IPU model device.
+  if (num_devices < 0) {
+    num_devices = 1;
+  }
   if (num_devices <= 0 || num_devices > 2) {
     return InvalidArgument(
         "IPU model device manager only supporting 1 or 2 IPU devices.");
@@ -159,18 +163,19 @@ StatusOr<IpuDeviceMeshManager> IpuDeviceMeshManager::CreateIpuManager(
   TF_ASSIGN_OR_RETURN(auto all_manager,
                       IpuDeviceMeshManager::CreateIpuManagerWithAll());
   const int num_ipus = all_manager.count(1);
-  // Directly return => all IPUs used.
+  //  All IPUs requested => simple case, just try attaching them all.
   if (num_devices < 0 || num_devices == num_ipus) {
     // Always try attaching for consistency?
     if (all_manager.AttachAll()) {
       return all_manager;
     }
-    return ResourceExhausted("Could not create IPU manager with %u attached.",
-                             num_devices);
+    return ResourceExhausted(
+        "Could not create IPU manager with %u IPUs attached.", num_ipus);
   }
   if (num_ipus < num_devices) {
     return FailedPrecondition(
-        "Can not create IPU manager: only %u IPUs available.", num_ipus);
+        "Can not create IPU manager with %u devices: only %u IPUs available.",
+        num_devices, num_ipus);
   }
   // All configs currently supported. TODO: global variable.
   const std::set<int> num_devices_supported = {1, 2, 4, 8, 16, 32, 64};
