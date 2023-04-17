@@ -666,8 +666,9 @@ StatusOr<bool> IpuPjRtClient::IsIpuExecutableRunOnHost(
       HloModule::CreateFromProto(computation.proto(), module_config));
   TF_RETURN_IF_ERROR(module->entry_computation()->Accept(analysis.get()));
   const float flops = analysis->flop_count();
-  // Run on host if flops small enough.
-  const bool run_on_host = (flops <= m_options.execute_on_host_flops_limit);
+  // Run on host if flops small enough (and not -1 => CustomCall in graph).
+  const bool run_on_host =
+      (flops <= m_options.execute_on_host_flops_limit) && (flops >= 0.0f);
   return run_on_host;
 }
 
