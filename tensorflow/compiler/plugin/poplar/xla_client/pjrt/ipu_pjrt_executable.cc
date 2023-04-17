@@ -208,10 +208,17 @@ Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable,
           v.Handles()[0]);
     }
   }
+  // Infeed and outfeed not yet supported on IPU PjRt runtime.
+  if (poplar_executable->GetInfeedInfos().size() > 0) {
+    return FailedPrecondition(
+        "Infeeds are not yet supported by IPU PjRt backend.");
+  }
+  if (poplar_executable->GetOutfeedInfos().size() > 0) {
+    return FailedPrecondition(
+        "Outfeeds are not yet supported by IPU PjRt backend.");
+  }
   // Other unsupported features.
   CHECK_EQ(poplar_executable->GetStreamInfos().size(), 0);
-  CHECK_EQ(poplar_executable->GetInfeedInfos().size(), 0);
-  CHECK_EQ(poplar_executable->GetOutfeedInfos().size(), 0);
   CHECK_EQ(poplar_executable->GetSendInfos().size(), 0);
   CHECK_EQ(poplar_executable->GetRecvInfos().size(), 0);
 

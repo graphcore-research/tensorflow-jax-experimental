@@ -78,19 +78,20 @@ std::string IpuPjRtDevice::ToString() const {
 // those that do not will return nullptr.
 std::unique_ptr<ScopedAsyncTrackingEvent>
 IpuPjRtDevice::CreateAsyncTrackingEvent(absl::string_view description) const {
-  throw std::runtime_error("`CreateAsyncTrackingEvent` not implemented");
+  throw std::runtime_error(
+      "`CreateAsyncTrackingEvent` is not implemented on IPU.");
 }
 
 // Transfer the given literal to the infeed queue.
 Status IpuPjRtDevice::TransferToInfeed(const LiteralSlice& literal) {
   throw std::runtime_error(
-      "`TransferToInfeed` not implemented on IPU PjRt device.");
+      "`TransferToInfeed` is not implemented on IPU PjRt device.");
 }
 
 // Transfer and return a value of the given shape from the outfeed queue.
 Status IpuPjRtDevice::TransferFromOutfeed(MutableBorrowingLiteral literal) {
   throw std::runtime_error(
-      "`TransferFromOutfeed` not implemented on IPU PjRt device.");
+      "`TransferFromOutfeed` is not implemented on IPU PjRt device.");
 }
 
 // Returns vendor specific attributes about the device. For example the model
