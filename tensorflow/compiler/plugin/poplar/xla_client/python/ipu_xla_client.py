@@ -35,7 +35,15 @@ IpuPjRtOptions = _ipu_xla.IpuPjRtOptions
 IpuPjRtClientState = _ipu_xla.IpuPjRtClientState
 IpuPjRtMeshState = _ipu_xla.IpuPjRtMeshState
 IpuPjRtExecutableRunInfo = _ipu_xla.IpuPjRtExecutableRunInfo
+IpuPjRtBufferLocation = _ipu_xla.IpuPjRtBufferLocation
+IpuPjRtBufferStatus = _ipu_xla.IpuPjRtBufferStatus
+IpuPjRtBufferDonationType = _ipu_xla.IpuPjRtBufferDonationType
+IpuPjRtInputOutputDonationInfo = _ipu_xla.IpuPjRtInputOutputDonationInfo
 get_ipu_client = _ipu_xla.get_ipu_client
+
+# Inspect classes, for debugging and testing.
+IpuPjRtBufferInspect = _ipu_xla.IpuPjRtBufferInspect
+IpuPjRtExecutableInspect = _ipu_xla.IpuPjRtExecutableInspect
 
 # Backward compatible declarations.
 IpuTargetType = _ipu_xla.IpuPoplarTargetType

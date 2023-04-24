@@ -54,25 +54,72 @@ class IpuPjRtBufferStatus {
 
   /**
    * @brief Set/Mark the buffer as on-device expired.
+   *
+   * If the buffer was previously SRAM synchronized, then it is
+   * converted back to a pure HOST buffer.
+   *
    * NOTE: Can not undo this operation on buffer status!
    * @return The previous expired status.
    */
-  bool MarkOnDeviceExpired() noexcept {
-    return m_on_device_expired.exchange(true);
+  void MarkOnDeviceExpired() noexcept {
+    std::scoped_lock l(m_mutex);
+    if (m_is_host_buffer_sync) {
+      // Convert back to HOST only buffer when possible.
+      // e.g. typical case of re-loading weights in inference.
+      m_location = IpuPjRtBufferLocation::HOST;
+    }
+    m_is_host_buffer_sync = false;
+    m_on_device_expired = true;
   }
   /**
-   * @brief Is the buffer on-device expired?
+   * @brief Convert to SRAM synchronized buffer.
    */
-  bool IsOnDeviceExpired() const noexcept { return m_on_device_expired.load(); }
+  void ConvertToSRAMHostSynchronized() noexcept {
+    std::scoped_lock l(m_mutex);
+    // TODO: additional checks?
+    m_location = IpuPjRtBufferLocation::SRAM;
+    m_on_device_expired = false;
+    m_is_host_buffer_sync = true;
+  }
+  // TODO: removed, replaced with higher level semantics.
+  void MarkHostBufferSynchronized() noexcept {
+    std::scoped_lock l(m_mutex);
+    m_is_host_buffer_sync = true;
+  }
+
   /** IPU buffer location. */
-  IpuPjRtBufferLocation location() const noexcept { return m_location; }
+  IpuPjRtBufferLocation location() const noexcept {
+    std::scoped_lock l(m_mutex);
+    return m_location;
+  }
+  /** Is the buffer on-device expired? */
+  bool IsOnDeviceExpired() const noexcept {
+    std::scoped_lock l(m_mutex);
+    return m_on_device_expired;
+  }
+  /** Is the buffer on HOST synchronized with device. Always true for host
+   * buffers. */
+  bool IsHostBufferSync() const noexcept {
+    std::scoped_lock l(m_mutex);
+    // Either already on the host, or already synchronized.
+    return (m_location == IpuPjRtBufferLocation::HOST) ||
+           (m_location != IpuPjRtBufferLocation::UNKNOWN &&
+            m_is_host_buffer_sync);
+    return true;
+  }
 
  private:
-  // Location of the buffer.
+  // Mutex protecting the status (potentially shared between threads).
+  // TODO: can use only atomic values?
+  mutable std::mutex m_mutex;
+  // Location of the buffer. TODO: atomic value?
   IpuPjRtBufferLocation m_location;
   // Is the on-device (SRAM/DRAM) buffer expired (either deleted, or
   // re-written).
-  std::atomic_bool m_on_device_expired = false;
+  bool m_on_device_expired = false;
+  // Is host buffer sync, when buffer is located on SRAM (or DRAM).
+  // By default, false (safer option!).
+  bool m_is_host_buffer_sync = false;
 };
 
 /**
@@ -226,16 +273,23 @@ class IpuPjRtBuffer : public PjRtBuffer {
    * @brief Build an IPU HOST or SRAM buffer, with a PjRt host buffer.
    */
   static std::unique_ptr<PjRtBuffer> CreateIpuBuffer(
-      std::unique_ptr<PjRtBuffer> cpu_buffer, IpuPjRtBufferLocation location,
-      PjRtDevice* device, IpuPjRtExecutable* executable = nullptr);
-  static std::unique_ptr<PjRtBuffer> CreateIpuBuffer(
       std::unique_ptr<TfrtCpuBuffer> cpu_buffer, IpuPjRtBufferLocation location,
       PjRtDevice* device, IpuPjRtExecutable* executable = nullptr);
+  static std::unique_ptr<PjRtBuffer> CreateIpuBuffer(
+      std::unique_ptr<TfrtCpuBuffer> cpu_buffer,
+      std::shared_ptr<IpuPjRtBufferStatus> status, PjRtDevice* device,
+      IpuPjRtExecutable* executable = nullptr);
+
   /** Build an IPU HOST or SRAM buffer, from a tracked CPU buffer. */
   static std::unique_ptr<PjRtBuffer> CreateIpuBuffer(
       const Shape& shape,
       std::shared_ptr<TrackedTfrtCpuDeviceBuffer> tracked_host_buffer,
       IpuPjRtBufferLocation location, PjRtDevice* device,
+      IpuPjRtExecutable* executable = nullptr);
+  static std::unique_ptr<PjRtBuffer> CreateIpuBuffer(
+      const Shape& shape,
+      std::shared_ptr<TrackedTfrtCpuDeviceBuffer> tracked_host_buffer,
+      std::shared_ptr<IpuPjRtBufferStatus> status, PjRtDevice* device,
       IpuPjRtExecutable* executable = nullptr);
 
   /** Get the IPU buffer location. */
@@ -255,16 +309,19 @@ class IpuPjRtBuffer : public PjRtBuffer {
 
   /**
    * Is the internal host buffer in sync with (optional) IPU SRAM/DRAM buffer.
+   * Always true for HOST buffers.
    */
   bool IsHostBufferSync() const noexcept {
-    // Either already on the host, or already synchronized.
-    const auto location = this->location();
-    return (location == IpuPjRtBufferLocation::HOST) ||
-           (location != IpuPjRtBufferLocation::UNKNOWN &&
-            m_is_host_buffer_sync);
+    return m_status->IsHostBufferSync();
   }
   /** Mark the IPU buffer as host synchronized. */
-  void MarkHostBufferSynchronized() noexcept { m_is_host_buffer_sync = true; }
+  void MarkHostBufferSynchronized() noexcept {
+    m_status->MarkHostBufferSynchronized();
+  }
+  /** Convert the buffer to an SRAM buffer synchronized with host. */
+  void ConvertToSRAMHostSynchronized() noexcept {
+    m_status->ConvertToSRAMHostSynchronized();
+  }
 
   /**
    * @brief Convert to HOST IPU buffer if synchronized, or delete
@@ -283,7 +340,13 @@ class IpuPjRtBuffer : public PjRtBuffer {
   }
 
  private:
-  /** Buffer (shareable) status. */
+  /**
+   * IPU buffer (shareable) status. A buffer status can be shared with:
+   * - IPU client state, to keep track of valid/invalid SRAM buffers;
+   * - Other IPU buffers, in the case of `unchanged` donated IPU SRAM buffers;
+   *   In the later case, multiple buffers are referencing the same SRAM
+   * read-only memory space, hence why it is safe to do so!
+   */
   std::shared_ptr<IpuPjRtBufferStatus> m_status{nullptr};
   /** Device of the buffer */
   PjRtDevice* m_device{nullptr};
@@ -298,8 +361,6 @@ class IpuPjRtBuffer : public PjRtBuffer {
    * CPU client logic for asynchronous execution and events.
    */
   std::unique_ptr<TfrtCpuBuffer> m_host_buffer{nullptr};
-  /** Is host buffer sync, when buffer is located on SRAM (or DRAM). */
-  bool m_is_host_buffer_sync = false;
   /** Reference to output buffers when generated by executable run. */
   std::shared_ptr<IpuPjRtRunOutputsRef> m_run_outputs_ref{nullptr};
 };

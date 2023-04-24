@@ -253,10 +253,16 @@ class IpuPjRtClient : public PjRtClient {
    * @brief Update the IPU client state with a new executable run.
    * This function is thread-safe, blocking any other modification on the state.
    *
+   * @param mesh_id Mesh id of the run.
+   * @param executable_id Executable id of the run.
+   * @param inputs_donated_location Location of donated inputs (SRAM or HOST).
+   * @param run_outputs_ref Outputs (status) ref.
+   * @param execute_event Execute event of the run.
    * @returns (run info, mesh transition info).
    */
   std::pair<IpuPjRtExecutableRunInfo, IpuPjRtMeshTransition> UpdateClientState(
       int mesh_id, int executable_id,
+      IpuPjRtBufferLocation inputs_donated_location,
       std::shared_ptr<IpuPjRtRunOutputsRef> run_outputs_ref,
       tfrt::AsyncValueRef<CpuEvent> execute_event);
 

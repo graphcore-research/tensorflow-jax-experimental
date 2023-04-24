@@ -70,7 +70,13 @@ std::pair<IpuPjRtClientState, IpuPjRtMeshTransition> IpuPjRtClientState::Update(
             run_info.outputs_ref, run_info.execute_event.CopyRef()});
         // Mark previous on-device buffers as expired.
         if (m.run_outputs_ref) {
-          m.run_outputs_ref->MarkOnDeviceExpired();
+          // UNCHANGED donated buffers expired?
+          // Keep only if same executable AND no H2D transfer required.
+          const bool keep_unchanged_donated_buffers =
+              (run_info.executable_id == m.executable_id) &&
+              (run_info.inputs_donated_location == IpuPjRtBufferLocation::SRAM);
+          m.run_outputs_ref->MarkOnDeviceExpired(
+              keep_unchanged_donated_buffers);
         }
         // Mesh transition: no need to attach, may need to load if new
         // executable id.
@@ -100,9 +106,11 @@ std::pair<IpuPjRtClientState, IpuPjRtMeshTransition> IpuPjRtClientState::Update(
         // Not overlapping with new IPU mesh => keep it, and not blocking.
         state_updated.m_active_meshes.push_back(m);
       } else {
-        // Overlapping with new IPU mesh => on-device buffers discarded.
+        // Overlapping with new IPU mesh => all on-device buffers discarded.
         if (m.run_outputs_ref) {
-          m.run_outputs_ref->MarkOnDeviceExpired();
+          const bool keep_unchanged_donated_buffers = false;
+          m.run_outputs_ref->MarkOnDeviceExpired(
+              keep_unchanged_donated_buffers);
         }
         // Add mesh state execute event as dependency (if set up).
         if (bool(m.execute_event) && !m.execute_event.IsAvailable()) {
@@ -580,7 +588,8 @@ StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtClient::BufferFromHostBuffer(
                           std::move(on_done_with_host_buffer), host_device));
   // No IPU executable associated with buffer.
   return IpuPjRtBuffer::CreateIpuBuffer(
-      std::move(cpu_buffer), IpuPjRtBufferLocation::HOST, device, nullptr);
+      unique_down_cast<TfrtCpuBuffer>(std::move(cpu_buffer)),
+      IpuPjRtBufferLocation::HOST, device, nullptr);
 }
 StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtClient::BufferFromHostLiteral(
     const LiteralSlice& literal, PjRtDevice* device) {
@@ -631,14 +640,18 @@ const IpuDeviceMeshManager& IpuPjRtClient::ipu_mesh_manager() const noexcept {
 std::pair<IpuPjRtExecutableRunInfo, IpuPjRtMeshTransition>
 IpuPjRtClient::UpdateClientState(
     int mesh_id, int executable_id,
+    IpuPjRtBufferLocation inputs_donated_location,
     std::shared_ptr<IpuPjRtRunOutputsRef> run_outputs_ref,
     tfrt::AsyncValueRef<CpuEvent> execute_event) {
   // Make sure we can't have multiple updates in parallel.
   std::lock_guard<std::mutex> lk(m_client_state_mutex);
   // Execute run info to use to state update.
-  auto run_info = IpuPjRtExecutableRunInfo{
-      mesh_id, executable_id, next_run_id(), std::move(run_outputs_ref),
-      std::move(execute_event)};
+  auto run_info = IpuPjRtExecutableRunInfo{mesh_id,
+                                           executable_id,
+                                           next_run_id(),
+                                           inputs_donated_location,
+                                           std::move(run_outputs_ref),
+                                           std::move(execute_event)};
   auto [updated_client_state, mesh_transition] =
       m_client_state.Update(run_info, m_ipu_mesh_manager);
   // Update current state + returns (run info, mesh transition).

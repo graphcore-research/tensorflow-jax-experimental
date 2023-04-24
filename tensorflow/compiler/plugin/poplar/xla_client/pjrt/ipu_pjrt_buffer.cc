@@ -50,7 +50,9 @@ IpuPjRtBufferLocation IpuBufferLocationFromIOType(
 
 IpuPjRtBufferStatus::IpuPjRtBufferStatus(
     IpuPjRtBufferLocation location) noexcept
-    : m_location{location}, m_on_device_expired{false} {
+    : m_location{location},
+      m_on_device_expired{false},
+      m_is_host_buffer_sync{false} {
   // Host or unknown located buffer => on device expired.
   if (m_location == IpuPjRtBufferLocation::HOST ||
       m_location == IpuPjRtBufferLocation::UNKNOWN) {
@@ -215,16 +217,17 @@ bool IpuPjRtBuffer::IsOnCpu() const {
 }
 
 std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBuffer(
-    std::unique_ptr<PjRtBuffer> cpu_buffer, IpuPjRtBufferLocation location,
-    PjRtDevice* device, IpuPjRtExecutable* executable) {
-  // TODO: deprecate this function.
-  return CreateIpuBuffer(unique_down_cast<TfrtCpuBuffer>(std::move(cpu_buffer)),
-                         location, device, executable);
-}
-
-std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBuffer(
     std::unique_ptr<TfrtCpuBuffer> cpu_buffer, IpuPjRtBufferLocation location,
     PjRtDevice* device, IpuPjRtExecutable* executable) {
+  return IpuPjRtBuffer::CreateIpuBuffer(
+      std::move(cpu_buffer), std::make_shared<IpuPjRtBufferStatus>(location),
+      device, executable);
+}
+std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBuffer(
+    std::unique_ptr<TfrtCpuBuffer> cpu_buffer,
+    std::shared_ptr<IpuPjRtBufferStatus> status, PjRtDevice* device,
+    IpuPjRtExecutable* executable) {
+  const auto location = status->location();
   // A couple of initial checks.
   CHECK_NOTNULL(device);
   CHECK_NOTNULL(cpu_buffer.get());
@@ -232,7 +235,8 @@ std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBuffer(
   CHECK(location != IpuPjRtBufferLocation::DRAM);
   // Build wrapping IPU buffer.
   std::unique_ptr<IpuPjRtBuffer> buffer = std::make_unique<IpuPjRtBuffer>();
-  buffer->m_status = std::make_shared<IpuPjRtBufferStatus>(location);
+  // Default buffer status (not synced).
+  buffer->m_status = std::move(status);
   buffer->m_device = device;
   buffer->m_host_buffer = std::move(cpu_buffer);
   // Keep executable only if not host buffer.
@@ -242,8 +246,6 @@ std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBuffer(
   } else {
     buffer->m_executable = nullptr;
   }
-  // By default, always assume SRAM/DRAM buffers not synced.
-  buffer->m_is_host_buffer_sync = false;
   return buffer;
 }
 
@@ -251,6 +253,15 @@ std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBuffer(
     const Shape& shape,
     std::shared_ptr<TrackedTfrtCpuDeviceBuffer> tracked_host_buffer,
     IpuPjRtBufferLocation location, PjRtDevice* device,
+    IpuPjRtExecutable* executable) {
+  return IpuPjRtBuffer::CreateIpuBuffer(
+      shape, std::move(tracked_host_buffer),
+      std::make_shared<IpuPjRtBufferStatus>(location), device, executable);
+}
+std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBuffer(
+    const Shape& shape,
+    std::shared_ptr<TrackedTfrtCpuDeviceBuffer> tracked_host_buffer,
+    std::shared_ptr<IpuPjRtBufferStatus> status, PjRtDevice* device,
     IpuPjRtExecutable* executable) {
   // CPU client & device.
   auto ipu_client = tensorflow::down_cast<IpuPjRtClient*>(device->client());
@@ -260,7 +271,8 @@ std::unique_ptr<PjRtBuffer> IpuPjRtBuffer::CreateIpuBuffer(
   auto host_buffer = std::make_unique<TfrtCpuBuffer>(
       shape, std::move(tracked_host_buffer), cpu_client, cpu_device);
   // IPU buffer, wrapping the host one.
-  return CreateIpuBuffer(std::move(host_buffer), location, device, executable);
+  return IpuPjRtBuffer::CreateIpuBuffer(std::move(host_buffer),
+                                        std::move(status), device, executable);
 }
 
 StatusOr<TfrtCpuBuffer*> IpuPjRtBuffer::GetHostBuffer(bool allow_unsync) {

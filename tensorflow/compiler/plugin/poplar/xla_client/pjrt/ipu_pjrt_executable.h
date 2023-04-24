@@ -48,6 +48,70 @@ Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable,
                                   const CompileOptions& compile_options);
 
 /**
+ * @brief IPU (input) buffer donation type.
+ *
+ * Donated input PjRt buffers are treated differently depending on whether
+ * they are updated or left unchanged. In the first case, there are declared
+ * as expired/deleted, whereas in the second case they remain valid (allowing
+ * an inference loop to run at full speed with weights on SRAM).
+ */
+enum class IpuPjRtBufferDonationType : int8_t {
+  NONE = 0,   // No input donation. Streamed from HOST memory.
+  UNCHANGED,  // Donated input buffer unchanged (e.g. inference weights).
+  UPDATED     // Donated input buffer updated (e.g. training weights).
+};
+
+/**
+ * @brief IPU input buffer donation info.
+ */
+struct IpuPjRtInputOutputDonationInfo {
+  /** Input buffer donation type. */
+  IpuPjRtBufferDonationType type = IpuPjRtBufferDonationType::NONE;
+  /** Input index (donation idx when applicable). */
+  int input_index = -1;
+  /** Output index (donation idx when applicable). */
+  int output_index = -1;
+
+  /** Convert to (readable) string representation. */
+  std::string ToString() const noexcept;
+};
+
+/**
+ * @brief Representation of an IPU executable input/output aliasing info.
+ */
+class IpuPjRtInputOutputAliasing {
+ public:
+  IpuPjRtInputOutputAliasing();
+  /** Inputs aliasing info. */
+  const std::vector<IpuPjRtInputOutputDonationInfo>& inputs() const noexcept {
+    return m_inputs_aliasing;
+  }
+  /** Outputs aliasing info. */
+  const std::vector<IpuPjRtInputOutputDonationInfo>& outputs() const noexcept {
+    return m_outputs_aliasing;
+  }
+
+  /** Create the input-output aliasing info from the base IPU executable (Poplar
+   * or HOST). */
+  static IpuPjRtInputOutputAliasing CreateFromBaseExecutable(
+      PjRtExecutable* base_executable);
+
+  /** Convert to (readable) string representation. */
+  std::string ToString() const noexcept;
+
+ private:
+  /** Build from inputs aliasing vector. */
+  IpuPjRtInputOutputAliasing(
+      std::vector<IpuPjRtInputOutputDonationInfo> inputs_aliasing,
+      std::size_t num_outputs);
+
+  /** Inputs aliasing info. */
+  std::vector<IpuPjRtInputOutputDonationInfo> m_inputs_aliasing;
+  /** (Associated) outputs aliasing info. */
+  std::vector<IpuPjRtInputOutputDonationInfo> m_outputs_aliasing;
+};
+
+/**
  * @brief IPU PjRt run raw input buffers (and input events) for a single
  * replica.
  */
@@ -57,6 +121,10 @@ struct IpuPjRtRunReplicaInputs {
       host_tracked_buffers;
   /** Definition events from inputs. */
   std::vector<tfrt::RCReference<tfrt::AsyncValue>> host_deps;
+  /** IPU buffers status. TODO: is it really necessary? Useful for UNCHANGED
+   * buffers. */
+  std::vector<std::shared_ptr<IpuPjRtBufferStatus>> buffers_status;
+
   /** Host/CPU input buffers scoped hold. Usage or Donation depending of input
    * type. Temporary for state construction, emptied and converted to usage
    * event once call is queued.
@@ -89,24 +157,34 @@ struct IpuPjRtRunReplicaInputs {
  * @brief IPU PjRt run raw output buffers for a single replica.
  */
 struct IpuPjRtRunReplicaOutputs {
-  /** Raw output host buffers. */
-  absl::InlinedVector<std::shared_ptr<MaybeOwningCpuMemory>, 4>
-      raw_host_buffers;
+  /** Host/CPU output tracked buffers. */
+  absl::InlinedVector<std::shared_ptr<TrackedTfrtCpuDeviceBuffer>, 4>
+      host_tracked_buffers;
   /** Output buffers shape. */
   absl::InlinedVector<Shape, 4> shapes;
 
   /** Number of outputs. */
-  std::size_t size() const { return raw_host_buffers.size(); }
+  std::size_t size() const { return host_tracked_buffers.size(); }
 
   /** Allocate replica output buffers from IO infos. */
   static StatusOr<IpuPjRtRunReplicaOutputs> AllocateFromOutputInfos(
+      const tfrt::AsyncValueRef<CpuEvent>& execute_event,
+      const IpuPjRtRunReplicaInputs& inputs,
+      const IpuPjRtInputOutputAliasing& input_output_aliasing,
       const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos);
 
   /**
    * @brief Create wrapping IPU PjRt output buffers.
+   * @param execute_event Event to use for buffer definition.
+   * @param input_buffers_status Input buffers status, for UNCHANGED buffers.
+   * @param input_output_aliasing Input/output aliasing info.
+   * @param output_infos All outputs info.
    */
   std::vector<std::unique_ptr<PjRtBuffer>> CreateIpuPjRtBuffers(
       const tfrt::AsyncValueRef<CpuEvent>& execute_event,
+      const std::vector<std::shared_ptr<IpuPjRtBufferStatus>>&
+          input_buffers_status,
+      const IpuPjRtInputOutputAliasing& input_output_aliasing,
       const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
       PjRtDevice* ipu_device, IpuPjRtExecutable* executable) const;
 
@@ -143,6 +221,7 @@ struct IpuPjRtRunState {
       IpuPjRtBufferLocation::UNKNOWN;
 
   IpuPjRtRunState() = default;
+  ~IpuPjRtRunState();
   // Move only data structure, no copy.
   // Help making sure we are not doing anything wrong!
   IpuPjRtRunState(IpuPjRtRunState&&) noexcept;
@@ -163,11 +242,17 @@ struct IpuPjRtRunState {
 
   /**
    * @brief Create/initialize run state with IO buffers.
+   *
+   * @param execute_event Execute event corresponding to the run.
    * @param all_input_handles All replicas input buffers.
+   * @param input_output_aliasing In/out aliasing info.
    * @param output_infos Output infos.
+   * @return IPU run state with proper IO buffers.
    */
   static StatusOr<IpuPjRtRunState> CreateWithIOBuffers(
+      tfrt::AsyncValueRef<CpuEvent> execute_event,
       absl::Span<const std::vector<PjRtBuffer*>> all_input_handles,
+      const IpuPjRtInputOutputAliasing& input_output_aliasing,
       const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos);
 
   /**
@@ -191,6 +276,7 @@ struct IpuPjRtRunState {
   std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>
   CreateOutputIpuPjRtBuffers(
       const tfrt::AsyncValueRef<CpuEvent>& execute_event,
+      const IpuPjRtInputOutputAliasing& input_output_aliasing,
       const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
       std::vector<PjRtDevice*> ipu_devices,
       IpuPjRtExecutable* executable) const;
@@ -212,8 +298,12 @@ struct IpuPjRtRunState {
 struct IpuPjRtRunOutputsRef {
   // Reference to a buffer + shared ref status.
   struct BufferAndStatusPtrs {
+    /** Pointer to buffer (WARNING: may be invalid!) */
     IpuPjRtBuffer* buffer{nullptr};
+    /** IPU buffer status (always valid!). */
     std::shared_ptr<IpuPjRtBufferStatus> status{nullptr};
+    /** Input/output aliasing (i.e. buffer donation). */
+    IpuPjRtInputOutputDonationInfo aliasing;
   };
   /** IPU executable generating the run. */
   // FIXME: what happens if executable is deleted before buffers?
@@ -230,8 +320,12 @@ struct IpuPjRtRunOutputsRef {
       const std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>& out_buffers,
       IpuPjRtExecutable* executable);
 
-  /** Mark on-device buffer as expired. */
-  void MarkOnDeviceExpired();
+  /**
+   * @brief Mark on-device buffer as expired.
+   * @param keep_unchanged_donated_buffers Keep unchanged donated buffers as
+   * valid.
+   */
+  void MarkOnDeviceExpired(bool keep_unchanged_donated_buffers);
   /** Is any on-device buffer expired? */
   bool IsAnyOnDeviceExpired() const noexcept;
 };
@@ -349,6 +443,11 @@ class IpuPjRtExecutable : public PjRtExecutable {
    */
   void ExecuteDeviceRun(IpuPjRtRunState& run_state);
 
+  /** Get input/output aliasing info. */
+  const IpuPjRtInputOutputAliasing& input_output_aliasing() const noexcept {
+    return m_input_output_aliasing;
+  }
+
  private:
   friend class IpuPjRtClient;
 
@@ -362,6 +461,10 @@ class IpuPjRtExecutable : public PjRtExecutable {
   /** Validate input arguments (shape, ...) */
   Status ValidateArgumentHandles(
       absl::Span<PjRtBuffer* const> argument_handles) const;
+
+  /** Mark input buffers as SRAM ones if donated + unchanged. */
+  Status MarkUnchangedDonatedBuffersAsSynchronizedOnSRAM(
+      absl::Span<const std::vector<PjRtBuffer*>> argument_handles) const;
 
   /**
    * @brief Execute directly on HOST/CPU.
@@ -389,6 +492,9 @@ class IpuPjRtExecutable : public PjRtExecutable {
   std::unique_ptr<TfrtCpuExecutable> m_host_executable;
   /** (Original) compilation options of the executable. */
   CompileOptions m_compile_options;
+  /** Input/output aliasing info. */
+  IpuPjRtInputOutputAliasing m_input_output_aliasing;
+
   /** Poplar engine mutex. To be on the safe side for D2H/H2D transfers. */
   mutable std::mutex m_poplar_engine_mutex;
 

@@ -21,6 +21,7 @@ limitations under the License.
 #include "tensorflow/compiler/plugin/poplar/driver/poplar_executable.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_buffer.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_client.h"
+#include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/utils.h"
 #include "tensorflow/compiler/xla/pjrt/tracked_tfrt_cpu_device_buffer.h"
 #include "tensorflow/compiler/xla/shape_util.h"
 
@@ -117,6 +118,7 @@ class IpuInputStreamCallback : public poplar::StreamCallback {
 
  private:
   /** Input host buffer to stream to device. */
+  // TODO: support tuples?
   std::shared_ptr<MaybeOwningCpuMemory> m_host_buffer;
 };
 
@@ -139,6 +141,7 @@ class IpuOutputStreamCallback : public poplar::StreamCallback {
 
  private:
   /** Input host buffer to stream to from device. */
+  // TODO: support tuples?
   std::shared_ptr<MaybeOwningCpuMemory> m_host_buffer;
 };
 
@@ -249,6 +252,7 @@ IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
   inputs.host_buffers_hold.reserve(num_inputs);
   inputs.host_tracked_buffers.reserve(num_inputs);
   inputs.host_deps.reserve(num_inputs);
+  inputs.buffers_status.reserve(num_inputs);
   // Extract host input buffers (and input events).
   for (std::size_t idx = 0; idx < num_inputs; ++idx) {
     auto* ipu_buffer = tensorflow::down_cast<IpuPjRtBuffer*>(inbuffers[idx]);
@@ -276,6 +280,7 @@ IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
     CHECK_EQ(host_buffer_hold->Buffers().size(), 1);
     inputs.host_tracked_buffers.push_back(host_buffer_hold.buffer());
     inputs.host_buffers_hold.emplace_back(std::move(host_buffer_hold));
+    inputs.buffers_status.push_back(ipu_buffer->status());
   }
   return inputs;
 }
@@ -289,6 +294,7 @@ void IpuPjRtRunReplicaInputs::ConnectStreamCallbacks(
     const auto& inname = ininfo.Handles()[0];
     if (ininfo.IsStreaming()) {
       // TODO: pass directly raw host buffer pointer (instead of shared ptr)?
+      // TODO: support tuple input?
       engine->connectStreamToCallback(
           inname, replica,
           std::make_unique<IpuInputStreamCallback>(
@@ -333,17 +339,44 @@ void IpuPjRtRunReplicaInputs::ConvertBufferHold(
 
 StatusOr<IpuPjRtRunReplicaOutputs>
 IpuPjRtRunReplicaOutputs::AllocateFromOutputInfos(
+    const tfrt::AsyncValueRef<CpuEvent>& execute_event,
+    const IpuPjRtRunReplicaInputs& inputs,
+    const IpuPjRtInputOutputAliasing& input_output_aliasing,
     const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos) {
   IpuPjRtRunReplicaOutputs outputs;
   // TODO: support tuple outputs?
   // TODO: improve alllocation to deal with memory fragmentation?
   const std::size_t num_outputs = output_infos.size();
-  outputs.raw_host_buffers.reserve(num_outputs);
-  for (const auto& output_info : output_infos) {
-    TF_ASSIGN_OR_RETURN(auto out_buffer,
-                        CreateRawHostBuffer(output_info.Shape()));
-    outputs.raw_host_buffers.push_back(out_buffer);
+  outputs.host_tracked_buffers.reserve(num_outputs);
+  for (std::size_t idx = 0; idx < output_infos.size(); ++idx) {
+    const auto& output_info = output_infos[idx];
+    const auto& output_aliasing = input_output_aliasing.outputs()[idx];
+    // Aliasing keep a copy of the shape. TODO: do we really need it?
     outputs.shapes.push_back(output_info.Shape());
+    if (output_aliasing.type == IpuPjRtBufferDonationType::UNCHANGED) {
+      // `UNCHANGED` buffer => can keep input host buffer.
+      // WARNING: status needs to also be shared when creating output PjRt
+      // buffer!
+      const auto inidx = output_aliasing.input_index;
+      outputs.host_tracked_buffers.push_back(
+          inputs.host_tracked_buffers[inidx]);
+    } else {
+      // TODO: support buffer donation for `UPDATED` buffers.
+      // Allocate proper raw host buffer.
+      TF_ASSIGN_OR_RETURN(auto out_buffer,
+                          CreateRawHostBuffer(output_info.Shape()));
+      // Wrap the raw buffer into a tracker host buffer.
+      absl::InlinedVector<std::shared_ptr<MaybeOwningCpuMemory>, 4> sub_buffers;
+      sub_buffers.push_back(std::move(out_buffer));
+      // Program execution writes to output buffers so it's a definition event.
+      absl::InlinedVector<tfrt::AsyncValueRef<CpuEvent>, 4> definition_events;
+      definition_events.push_back(execute_event.CopyRef());
+      // TRFT buffer wrapping raw buffers and events.
+      auto out_tracked_buffer = std::make_shared<TrackedTfrtCpuDeviceBuffer>(
+          /*is_tuple=*/false, std::move(sub_buffers),
+          std::move(definition_events));
+      outputs.host_tracked_buffers.push_back(out_tracked_buffer);
+    }
   }
   return outputs;
 }
@@ -351,6 +384,9 @@ IpuPjRtRunReplicaOutputs::AllocateFromOutputInfos(
 std::vector<std::unique_ptr<PjRtBuffer>>
 IpuPjRtRunReplicaOutputs::CreateIpuPjRtBuffers(
     const tfrt::AsyncValueRef<CpuEvent>& execute_event,
+    const std::vector<std::shared_ptr<IpuPjRtBufferStatus>>&
+        input_buffers_status,
+    const IpuPjRtInputOutputAliasing& input_output_aliasing,
     const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
     PjRtDevice* ipu_device, IpuPjRtExecutable* executable) const {
   std::vector<std::unique_ptr<PjRtBuffer>> buffers;
@@ -359,23 +395,25 @@ IpuPjRtRunReplicaOutputs::CreateIpuPjRtBuffers(
   CHECK_EQ(num_outputs, output_infos.size());
   buffers.reserve(num_outputs);
   for (std::size_t idx = 0; idx < num_outputs; ++idx) {
-    absl::InlinedVector<std::shared_ptr<MaybeOwningCpuMemory>, 4> sub_buffer;
-    sub_buffer.push_back(raw_host_buffers[idx]);
-    // Program execution writes to output buffers so it's a definition event.
-    absl::InlinedVector<tfrt::AsyncValueRef<CpuEvent>, 4> definition_events;
-    definition_events.push_back(execute_event.CopyRef());
-    auto out_tracked_device_buffer =
-        std::make_shared<TrackedTfrtCpuDeviceBuffer>(
-            /*is_tuple=*/false, std::move(sub_buffer),
-            std::move(definition_events));
     // IPU buffer location from the IO aliasing map information.
-    const auto& outinfo = output_infos[idx];
-    const auto location = IpuBufferLocationFromIOType(outinfo.GetType());
-    // Wrapping everything into an IPU buffer!
-    auto out_buffer = IpuPjRtBuffer::CreateIpuBuffer(
-        this->shapes[idx], std::move(out_tracked_device_buffer), location,
-        ipu_device, executable);
-    buffers.push_back(std::move(out_buffer));
+    const auto& output_aliasing = input_output_aliasing.outputs()[idx];
+    if (output_aliasing.type == IpuPjRtBufferDonationType::UNCHANGED) {
+      // UNCHANGED SRAM buffer => keep the same shared "status" as input.
+      auto status = input_buffers_status[output_aliasing.input_index];
+      auto out_buffer = IpuPjRtBuffer::CreateIpuBuffer(
+          this->shapes[idx], this->host_tracked_buffers[idx], status,
+          ipu_device, executable);
+      buffers.push_back(std::move(out_buffer));
+    } else {
+      // UPDATED or STREAMED buffer. TODO: handle donation properly?
+      const auto& outinfo = output_infos[idx];
+      const auto location = IpuBufferLocationFromIOType(outinfo.GetType());
+      // Wrapping everything into an IPU buffer!
+      auto out_buffer = IpuPjRtBuffer::CreateIpuBuffer(
+          this->shapes[idx], this->host_tracked_buffers[idx], location,
+          ipu_device, executable);
+      buffers.push_back(std::move(out_buffer));
+    }
   }
   return buffers;
 }
@@ -389,13 +427,23 @@ void IpuPjRtRunReplicaOutputs::ConnectStreamCallbacks(
     // Connect only streamed outputs.
     if (outinfo.IsStreaming()) {
       const auto& outname = outinfo.Handles()[0];
+      // TODO: support tuples properly.
       engine->connectStreamToCallback(
           outname, replica,
-          std::make_unique<IpuOutputStreamCallback>(raw_host_buffers[i]));
+          std::make_unique<IpuOutputStreamCallback>(
+              host_tracked_buffers[i]->Buffers()[0]));
     }
   }
 }
 
+IpuPjRtRunState::~IpuPjRtRunState() {
+  if (bool(execute_event) && !execute_event.IsAvailable()) {
+    // Set the event in error state, to avoid blocking.
+    execute_event.SetError(
+        absl::StrFormat("IPU executable (id: %i) run %i cancelled.",
+                        run_info.executable_id, run_info.run_id));
+  }
+}
 IpuPjRtRunState::IpuPjRtRunState(IpuPjRtRunState&& rhs) noexcept
     : run_info{std::move(rhs.run_info)},
       mesh_transition{std::move(rhs.mesh_transition)},
@@ -419,10 +467,14 @@ IpuPjRtRunState& IpuPjRtRunState::operator=(IpuPjRtRunState&& rhs) noexcept {
 }
 
 StatusOr<IpuPjRtRunState> IpuPjRtRunState::CreateWithIOBuffers(
+    tfrt::AsyncValueRef<CpuEvent> execute_event,
     absl::Span<const std::vector<PjRtBuffer*>> all_input_handles,
+    const IpuPjRtInputOutputAliasing& input_output_aliasing,
     const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos) {
   const auto num_replicas = all_input_handles.size();
   IpuPjRtRunState run_state;
+  // Copy the execute event into the state.
+  run_state.execute_event = std::move(execute_event);
   run_state.all_inputs.reserve(num_replicas);
   run_state.all_outputs.reserve(num_replicas);
   for (std::size_t replica = 0; replica < num_replicas; ++replica) {
@@ -430,11 +482,12 @@ StatusOr<IpuPjRtRunState> IpuPjRtRunState::CreateWithIOBuffers(
     TF_ASSIGN_OR_RETURN(auto inputs,
                         IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
                             all_input_handles[replica]));
-    run_state.all_inputs.push_back(std::move(inputs));
     // Raw output buffers for the replica.
-    TF_ASSIGN_OR_RETURN(
-        auto outputs,
-        IpuPjRtRunReplicaOutputs::AllocateFromOutputInfos(output_infos));
+    TF_ASSIGN_OR_RETURN(auto outputs,
+                        IpuPjRtRunReplicaOutputs::AllocateFromOutputInfos(
+                            run_state.execute_event, inputs,
+                            input_output_aliasing, output_infos));
+    run_state.all_inputs.push_back(std::move(inputs));
     run_state.all_outputs.push_back(std::move(outputs));
   }
   return run_state;
@@ -468,6 +521,7 @@ void IpuPjRtRunState::ConnectH2DStreamDonatedBuffers(
 std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>
 IpuPjRtRunState::CreateOutputIpuPjRtBuffers(
     const tfrt::AsyncValueRef<CpuEvent>& execute_event,
+    const IpuPjRtInputOutputAliasing& input_output_aliasing,
     const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
     std::vector<PjRtDevice*> ipu_devices, IpuPjRtExecutable* executable) const {
   const auto num_replicas = this->num_replicas();
@@ -476,7 +530,8 @@ IpuPjRtRunState::CreateOutputIpuPjRtBuffers(
   // Create IPU PjRt buffers wrapping raw outputs.
   for (std::size_t idx = 0; idx < num_replicas; ++idx) {
     all_pjrt_outputs.push_back(all_outputs[idx].CreateIpuPjRtBuffers(
-        execute_event, output_infos, ipu_devices[idx], executable));
+        execute_event, all_inputs[idx].buffers_status, input_output_aliasing,
+        output_infos, ipu_devices[idx], executable));
   }
   // Common run reference to all outputs, for handling on-device buffers.
   // TODO: handle returned status?
@@ -497,6 +552,10 @@ IpuPjRtRunOutputsRef::CreateAndAssign(
         all_out_buffers,
     IpuPjRtExecutable* executable) {
   CHECK_NOTNULL(executable);
+  CHECK_GT(all_out_buffers.size(), 0);
+  // Executable outputs aliasing info.
+  const auto& outputs_aliasing = executable->input_output_aliasing().outputs();
+
   auto outref = std::make_shared<IpuPjRtRunOutputsRef>();
   outref->executable = executable;
   outref->output_buffers.resize(all_out_buffers.size());
@@ -504,12 +563,13 @@ IpuPjRtRunOutputsRef::CreateAndAssign(
   for (size_t r = 0; r < all_out_buffers.size(); ++r) {
     const auto& out_buffers = all_out_buffers[r];
     outref->output_buffers[r].reserve(out_buffers.size());
-    for (const auto& buffer : out_buffers) {
+    for (std::size_t idx = 0; idx < out_buffers.size(); ++idx) {
       IpuPjRtBuffer* ipu_buffer =
-          tensorflow::down_cast<IpuPjRtBuffer*>(buffer.get());
+          tensorflow::down_cast<IpuPjRtBuffer*>(out_buffers[idx].get());
       CHECK_NOTNULL(ipu_buffer);
-      outref->output_buffers[r].push_back(
-          BufferAndStatusPtrs{ipu_buffer, ipu_buffer->status()});
+      // Keep output donation type for expiration logic.
+      outref->output_buffers[r].push_back(BufferAndStatusPtrs{
+          ipu_buffer, ipu_buffer->status(), outputs_aliasing[idx]});
     }
   }
   // Assign IPU run outputs ref to all PjRt buffers.
@@ -523,10 +583,15 @@ IpuPjRtRunOutputsRef::CreateAndAssign(
   return outref;
 }
 
-void IpuPjRtRunOutputsRef::MarkOnDeviceExpired() {
+void IpuPjRtRunOutputsRef::MarkOnDeviceExpired(
+    bool keep_unchanged_donated_buffers) {
   for (auto& outbuffers_ref : output_buffers) {
     for (auto& outbuf_ref : outbuffers_ref) {
-      outbuf_ref.status->MarkOnDeviceExpired();
+      // Should we keep unchanged donated buffers?
+      if (!keep_unchanged_donated_buffers ||
+          outbuf_ref.aliasing.type != IpuPjRtBufferDonationType::UNCHANGED) {
+        outbuf_ref.status->MarkOnDeviceExpired();
+      }
     }
   }
 }
@@ -543,6 +608,124 @@ bool IpuPjRtRunOutputsRef::IsAnyOnDeviceExpired() const noexcept {
     }
   }
   return is_expired;
+}
+
+std::string IpuPjRtInputOutputDonationInfo::ToString() const noexcept {
+  if (type == IpuPjRtBufferDonationType::NONE) {
+    // Empty for input without donation.
+    return std::string();
+  } else if (type == IpuPjRtBufferDonationType::UNCHANGED) {
+    return absl::StrFormat("%i:%i (UNCHANGED)", input_index, output_index);
+  } else {
+    return absl::StrFormat("%i:%i (UPDATED)", input_index, output_index);
+  }
+}
+
+/**
+ * @brief Basic analysis of HLO module to find inputs returned as such.
+ */
+std::vector<int> FindUnchangedInputsOutputs(HloModule* hlo_module) {
+  HloComputation* entry_computation = hlo_module->entry_computation();
+  HloInstruction* root_instruction = entry_computation->root_instruction();
+
+  const std::size_t num_params = entry_computation->num_parameters();
+  // By default: no input returned unchanged.
+  auto inputs_unchanged = std::vector<int>(num_params, -1);
+  // No root tuple instruction? I guess there is no unchanged input/output then!
+  // Does not make sense to return a single output which is an unchanged input!
+  if (root_instruction->opcode() != HloOpcode::kTuple) {
+    return inputs_unchanged;
+  }
+
+  const auto& inputs_inst = entry_computation->parameter_instructions();
+  const auto& outputs_inst = root_instruction->operands();
+  for (std::size_t idx = 0; idx < num_params; ++idx) {
+    // Find matching output instruction.
+    // TODO: is it brittle? Do we need something more robust?
+    const auto it =
+        std::find(outputs_inst.begin(), outputs_inst.end(), inputs_inst[idx]);
+    if (it != outputs_inst.end()) {
+      inputs_unchanged[idx] = std::distance(outputs_inst.begin(), it);
+    }
+  }
+  return inputs_unchanged;
+}
+
+IpuPjRtInputOutputAliasing::IpuPjRtInputOutputAliasing() {}
+IpuPjRtInputOutputAliasing::IpuPjRtInputOutputAliasing(
+    std::vector<IpuPjRtInputOutputDonationInfo> inputs_aliasing,
+    std::size_t num_outputs)
+    : m_inputs_aliasing{std::move(inputs_aliasing)} {
+  // Build associated outputs aliasing collection.
+  m_outputs_aliasing.resize(num_outputs);
+  for (const auto& input_alias : m_inputs_aliasing) {
+    if (input_alias.output_index >= 0) {
+      m_outputs_aliasing[input_alias.output_index] =
+          IpuPjRtInputOutputDonationInfo{input_alias.type,
+                                         input_alias.input_index,
+                                         input_alias.output_index};
+    }
+  }
+}
+
+IpuPjRtInputOutputAliasing IpuPjRtInputOutputAliasing::CreateFromBaseExecutable(
+    PjRtExecutable* base_executable) {
+  const bool is_host_executable =
+      base_executable->client()->platform_id() == CpuId();
+  if (is_host_executable) {
+    // Empty for now. Not required when we run on CPU.
+    return IpuPjRtInputOutputAliasing();
+  }
+  // Extract TF backend poplar executable info.
+  auto poplar_executable = GetPoplarExecutable(
+      reinterpret_cast<PjRtStreamExecutorExecutable*>(base_executable));
+  const auto& tf_io_aliasing_map =
+      poplar_executable->GetInputOutputAliasingMap();
+
+  const auto& inputs_info = tf_io_aliasing_map.GetEntryInputInfos();
+  std::vector<IpuPjRtInputOutputDonationInfo> inputs_aliasing;
+  inputs_aliasing.reserve(inputs_info.size());
+  for (std::size_t idx = 0; idx < inputs_info.size(); ++idx) {
+    const auto& ininfo = inputs_info[idx];
+    if (ininfo.IsResource()) {
+      // Updated donated input by default.
+      inputs_aliasing.push_back(IpuPjRtInputOutputDonationInfo{
+          IpuPjRtBufferDonationType::UPDATED, int(idx),
+          int(ininfo.GetOutputIndex())});
+    } else {
+      // No input donation.
+      inputs_aliasing.push_back(
+          IpuPjRtInputOutputDonationInfo{IpuPjRtBufferDonationType::NONE});
+    }
+  }
+  // Find unchanged inputs/outputs in HLO module.
+  const auto hlo_module = base_executable->GetHloModules().value()[0];
+  const auto unchanged_inouts = FindUnchangedInputsOutputs(hlo_module.get());
+  CHECK_EQ(inputs_info.size(), unchanged_inouts.size());
+  for (std::size_t idx = 0; idx < inputs_info.size(); ++idx) {
+    if (unchanged_inouts[idx] >= 0) {
+      auto& io_alias_info = inputs_aliasing[idx];
+      io_alias_info.type = IpuPjRtBufferDonationType::UNCHANGED;
+      // Got a problem if there is a mismatch here!
+      CHECK_EQ(io_alias_info.output_index, unchanged_inouts[idx]);
+    }
+  }
+  const std::size_t num_outputs =
+      tf_io_aliasing_map.GetEntryOutputInfos().size();
+  return IpuPjRtInputOutputAliasing(std::move(inputs_aliasing), num_outputs);
+}
+
+std::string IpuPjRtInputOutputAliasing::ToString() const noexcept {
+  std::string s = "{";
+  // Awful way of generating a string, but not a big performance issue here.
+  for (const auto& info : m_inputs_aliasing) {
+    std::string info_str = info.ToString();
+    if (info_str.size() > 0) {
+      s += info_str + ", ";
+    }
+  }
+  s += "}";
+  return s;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -583,6 +766,12 @@ IpuPjRtExecutable::IpuPjRtExecutable(
   CHECK_GT(m_devices.size(), 0);
   CHECK_NOTNULL(GetBaseExecutable());
   CHECK(m_compile_options.executable_build_options.has_device_assignment());
+
+  // In/out aliasing info.
+  m_input_output_aliasing =
+      IpuPjRtInputOutputAliasing::CreateFromBaseExecutable(GetBaseExecutable());
+  LOG(INFO) << "IPU PjRt executable input/output aliasing map: "
+            << m_input_output_aliasing.ToString();
 
   // Start execute thread in asynchronous case.
   if (m_asynchronous_run) {
@@ -678,7 +867,7 @@ IpuPjRtExecutable::Execute(
   // buffers. On HOST location requires the buffers to be first streamed before
   // calling the main program.
   TF_ASSIGN_OR_RETURN(
-      const auto inputs_donated_location,
+      const IpuPjRtBufferLocation inputs_donated_location,
       CheckInputDonatedBuffers(argument_handles, io_aliasing_map));
 
   LOG(INFO) << "Queuing IPU computation " << name()
@@ -687,20 +876,21 @@ IpuPjRtExecutable::Execute(
             << "; num_addressable_devices=" << num_addressable_devices
             << "; num_inputs=" << num_inputs << " num_outputs=" << num_outputs;
 
+  // execute_event indicates whether ipu computation is complete and whether
+  // there was an error.
+  // Different type of execute event for sync/async cases.
+  tfrt::AsyncValueRef<CpuEvent> execute_event =
+      m_asynchronous_run ? tfrt::MakeConstructedAsyncValueRef<CpuEvent>(
+                               host_context)                     // Asynchronous
+                         : GetOrCreateReadyEvent(host_context);  // Synchronous
+
   // PjRt run state with all replicas IO buffers.
   TF_ASSIGN_OR_RETURN(
       auto run_state,
       IpuPjRtRunState::CreateWithIOBuffers(
-          argument_handles, io_aliasing_map.GetEntryOutputInfos()));
+          execute_event, argument_handles, m_input_output_aliasing,
+          io_aliasing_map.GetEntryOutputInfos()));
   run_state.inputs_donated_location = inputs_donated_location;
-
-  // execute_event indicates whether ipu computation is complete and whether
-  // there was an error.
-  // Different type of execute event for sync/async cases.
-  run_state.execute_event =
-      m_asynchronous_run ? tfrt::MakeConstructedAsyncValueRef<CpuEvent>(
-                               host_context)                     // Asynchronous
-                         : GetOrCreateReadyEvent(host_context);  // Synchronous
 
   // Wrapping execute even as PjRt future status.
   auto done_event = tfrt::MakeUnconstructedAsyncValueRef<Status>();
@@ -717,8 +907,8 @@ IpuPjRtExecutable::Execute(
 
   // Returned outputs, for all replica, with IPU executable reference.
   auto outputs = run_state.CreateOutputIpuPjRtBuffers(
-      run_state.execute_event, io_aliasing_map.GetEntryOutputInfos(), m_devices,
-      this);
+      run_state.execute_event, this->input_output_aliasing(),
+      io_aliasing_map.GetEntryOutputInfos(), m_devices, this);
   // Returned futures, for all replica.
   if (returned_futures) {
     returned_futures.value().clear();
@@ -740,9 +930,11 @@ IpuPjRtExecutable::Execute(
 
   // (Blocking) update of client state.
   // Use as coordination mechanism when required to load or reorganize IPUs.
+  // NOTE: passing inputs donated location, as used for marking previous SRAM
+  // (UNCHANGED or UPDATED) buffers as expired (or not).
   auto [run_info, mesh_transition] = m_client->UpdateClientState(
-      m_device_mesh_id, m_executable_id, m_last_run_outputs_ref,
-      run_state.execute_event.CopyRef());
+      m_device_mesh_id, m_executable_id, run_state.inputs_donated_location,
+      m_last_run_outputs_ref, run_state.execute_event.CopyRef());
   // Move run info and mesh transition info.
   run_state.run_info = std::move(run_info);
   run_state.mesh_transition = std::move(mesh_transition);
@@ -750,6 +942,10 @@ IpuPjRtExecutable::Execute(
   // No need for inputs scoped hold => convert to usage event.
   // NOTE: necessary, otherwise scoped hold blocking buffer delete.
   run_state.ConvertInputBufferHold();
+  // Mark unchanged donated input buffers as SRAM synchronized.
+  // Allows to write nice JAX inference code, where the donated output is
+  // ignored and weights are on SRAM for next iteration.
+  this->MarkUnchangedDonatedBuffersAsSynchronizedOnSRAM(argument_handles);
 
   /////////////// RUNNING POPLAR ENGINE ///////////////
   /////////////// RUNNING POPLAR ENGINE ///////////////
@@ -884,7 +1080,8 @@ void IpuPjRtExecutable::Delete() {
   // Mark last run on-device expired, and nullify ptr.
   // Avoid error if trying to fetch on-device values.
   if (m_last_run_outputs_ref) {
-    m_last_run_outputs_ref->MarkOnDeviceExpired();
+    const bool keep_unchanged_donated_buffers = false;
+    m_last_run_outputs_ref->MarkOnDeviceExpired(keep_unchanged_donated_buffers);
     m_last_run_outputs_ref->executable = nullptr;
   }
   // Reset host and IPU executables.
@@ -947,6 +1144,23 @@ Status IpuPjRtExecutable::ValidateArgumentHandles(
   return Status::OK();
 }
 
+Status IpuPjRtExecutable::MarkUnchangedDonatedBuffersAsSynchronizedOnSRAM(
+    absl::Span<const std::vector<PjRtBuffer*>> argument_handles) const {
+  const auto& inputs_aliasing = m_input_output_aliasing.inputs();
+  for (std::size_t r = 0; r < argument_handles.size(); ++r) {
+    const auto& replica_input_buffers = argument_handles[r];
+    for (std::size_t idx = 0; idx < replica_input_buffers.size(); ++idx) {
+      IpuPjRtBuffer* ipu_buffer =
+          static_cast<IpuPjRtBuffer*>(replica_input_buffers[idx]);
+      // Input donated buffer unchanged by the executable.
+      if (inputs_aliasing[idx].type == IpuPjRtBufferDonationType::UNCHANGED) {
+        ipu_buffer->ConvertToSRAMHostSynchronized();
+      }
+    }
+  }
+  return Status::OK();
+}
+
 StatusOr<std::vector<std::vector<std::unique_ptr<PjRtBuffer>>>>
 IpuPjRtExecutable::ExecuteOnHost(
     absl::Span<const std::vector<PjRtBuffer*>> argument_handles,
@@ -983,8 +1197,8 @@ IpuPjRtExecutable::ExecuteOnHost(
   for (std::size_t i = 0; i < replica_host_buffers.size(); ++i) {
     // No need to reference executable when run on HOST directly.
     auto res_buffer = IpuPjRtBuffer::CreateIpuBuffer(
-        std::move(replica_host_buffers[i]), IpuPjRtBufferLocation::HOST,
-        m_devices[0], nullptr);
+        unique_down_cast<TfrtCpuBuffer>(std::move(replica_host_buffers[i])),
+        IpuPjRtBufferLocation::HOST, m_devices[0], nullptr);
     res_ipu_buffers.push_back(std::move(res_buffer));
   }
   std::vector<std::vector<std::unique_ptr<PjRtBuffer>>> result;

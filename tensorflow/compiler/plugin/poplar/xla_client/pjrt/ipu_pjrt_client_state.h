@@ -73,7 +73,8 @@ struct IpuPjRtExecutableRunInfo {
   int executable_id = 0;
   /** Run id, assigned by the client. */
   int run_id = 0;
-
+  /** Location of donated inputs (HOST or SRAM). */
+  IpuPjRtBufferLocation inputs_donated_location = IpuPjRtBufferLocation::HOST;
   /** (Optional) reference to run outputs */
   std::shared_ptr<IpuPjRtRunOutputsRef> outputs_ref{nullptr};
   /** Run execute event. */

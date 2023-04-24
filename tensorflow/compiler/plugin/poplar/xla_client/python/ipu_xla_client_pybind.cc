@@ -22,11 +22,47 @@ limitations under the License.
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_device_mesh.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
+#include "tensorflow/compiler/xla/python/py_buffer.h"
 #include "tensorflow/compiler/xla/python/py_client.h"
+#include "tensorflow/compiler/xla/python/py_executable.h"
 #include "tensorflow/compiler/xla/python/types.h"
 
 namespace xla {
 namespace poplarplugin {
+
+// Inspect classes (with Python bindings), to get an insight into IPU PjRt
+// objects. Very useful for Python debugging or/and unit tests, without exposing
+// IPU specific internals in public APIs.
+
+/** IPU PjRt buffer properties. */
+struct IpuPjRtBufferInspect {
+  static IpuPjRtBuffer* GetIpuBuffer(pybind11::object buf) {
+    PjRtBuffer* buffer = PyBuffer::AsPyBufferUnchecked(buf)->buffer();
+    return static_cast<IpuPjRtBuffer*>(buffer);
+  }
+  static IpuPjRtBufferLocation GetLocation(pybind11::object buf) {
+    return GetIpuBuffer(buf)->location();
+  }
+  static bool IsHostBufferSync(pybind11::object buf) {
+    return GetIpuBuffer(buf)->IsHostBufferSync();
+  }
+  static bool IsOnDeviceExpired(pybind11::object buf) {
+    return GetIpuBuffer(buf)->status()->IsOnDeviceExpired();
+  }
+};
+/** IPU PjRt executable properties. */
+struct IpuPjRtExecutableInspect {
+  static IpuPjRtExecutable* GetIpuExecutable(
+      const PyExecutable& py_executable) {
+    PjRtExecutable* executable = py_executable.executable().get();
+    CHECK_NOTNULL(executable);
+    return static_cast<IpuPjRtExecutable*>(executable);
+  }
+  static IpuPjRtInputOutputAliasing GetInputOutputAliasing(
+      const PyExecutable& py_executable) {
+    return GetIpuExecutable(py_executable)->input_output_aliasing();
+  }
+};
 
 namespace py = pybind11;
 
@@ -155,6 +191,40 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
       .def_property_readonly("location", &IpuPjRtBufferStatus::location)
       .def_property_readonly("is_on_device_expired",
                              &IpuPjRtBufferStatus::IsOnDeviceExpired);
+
+  py::class_<IpuPjRtBufferInspect>(m, "IpuPjRtBufferInspect")
+      .def_static("get_location", &IpuPjRtBufferInspect::GetLocation)
+      .def_static("is_host_buffer_sync",
+                  &IpuPjRtBufferInspect::IsHostBufferSync)
+      .def_static("is_on_device_expired",
+                  &IpuPjRtBufferInspect::IsOnDeviceExpired);
+
+  // IPU PjRt executable bindings.
+  py::enum_<IpuPjRtBufferDonationType>(m, "IpuPjRtBufferDonationType")
+      .value("NONE", IpuPjRtBufferDonationType::NONE)
+      .value("UNCHANGED", IpuPjRtBufferDonationType::UNCHANGED)
+      .value("UPDATED", IpuPjRtBufferDonationType::UPDATED);
+
+  py::class_<IpuPjRtInputOutputDonationInfo>(m,
+                                             "IpuPjRtInputOutputDonationInfo")
+      .def(py::init<>())
+      .def("__repr__", &IpuPjRtInputOutputDonationInfo::ToString)
+      .def_readwrite("type", &IpuPjRtInputOutputDonationInfo::type)
+      .def_readwrite("input_index",
+                     &IpuPjRtInputOutputDonationInfo::input_index)
+      .def_readwrite("output_index",
+                     &IpuPjRtInputOutputDonationInfo::output_index);
+  py::class_<IpuPjRtInputOutputAliasing>(m, "IpuPjRtInputOutputAliasing")
+      .def(py::init<>())
+      .def("__repr__", &IpuPjRtInputOutputAliasing::ToString)
+      .def_property_readonly("inputs", &IpuPjRtInputOutputAliasing::inputs,
+                             py::return_value_policy::reference_internal)
+      .def_property_readonly("outputs", &IpuPjRtInputOutputAliasing::outputs,
+                             py::return_value_policy::reference_internal);
+
+  py::class_<IpuPjRtExecutableInspect>(m, "IpuPjRtExecutableInspect")
+      .def_static("get_input_output_aliasing",
+                  &IpuPjRtExecutableInspect::GetInputOutputAliasing);
 
   // IPU PjRt client bindings.
   py::class_<IpuPjRtOptions>(m, "IpuPjRtOptions")

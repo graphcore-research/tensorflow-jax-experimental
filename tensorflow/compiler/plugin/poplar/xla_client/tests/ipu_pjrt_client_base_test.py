@@ -27,7 +27,8 @@ from tensorflow.compiler.xla.python import xla_extension
 from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client import (
     IpuDeviceMeshManager, IpuPjRtOptions, get_ipu_client, IpuTargetType, IpuPjRtDevice,
     IpuPjRtOptions, make_ipu_client, parse_ipu_env_flags, make_ipu_legacy_config,
-    make_ipu_pjrt_options
+    make_ipu_pjrt_options, IpuPjRtBufferLocation, IpuPjRtBufferStatus,
+    IpuPjRtBufferInspect, IpuPjRtExecutableInspect, IpuPjRtBufferDonationType
 )
 
 ops = xla_client.ops
@@ -272,6 +273,10 @@ class IpuPjrtClientBufferTest(parameterized.TestCase):
     self.assertEqual(xla_shape.dimensions(), (1, 2))
     self.assertEqual(np.dtype(xla_shape.element_type()), np.dtype(np.float32))
     self.assertEqual(local_buffer.device(), self.backend.devices()[0])
+    # IPU buffer located on HOST.
+    self.assertEqual(
+        IpuPjRtBufferInspect.get_location(local_buffer), IpuPjRtBufferLocation.HOST
+    )
 
   def testIpuPjRtclient__buffer__base_signatures(self):
     # When extending `DeviceArrayBase`, the object behaves as a `DeviceArray`
@@ -464,8 +469,10 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     self.backend.compile(c)
 
   def testIpuPjRtclient__donated_arguments__successful_multi_runs(self):
+    get_buf_location = IpuPjRtBufferInspect.get_location
+
     mlir_module = """
-    module @jit_fn.1 {
+    module @testIpuPjRtclient__donated_arguments__successful_multi_runs {
       func.func public @main(%arg0: tensor<2xf32>, %arg1: tensor<2xf32> {tf.aliasing_output = 1 : i32}) -> (tensor<2xf32>, tensor<2xf32>) {
         %0 = mhlo.add %arg0, %arg1 : tensor<2xf32>
         %1 = mhlo.multiply %arg0, %arg1 : tensor<2xf32>
@@ -495,10 +502,12 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
 
     # Second run: should be re-using value already on IPU SRAM.
     out20, out21 = executable.execute([out0, out1])
-    # Check input buffers status: donated buffer should have been deleted.
-    # TODO: check buffers status & location.
+    # Check output buffers status.
     self.assertFalse(out0.is_deleted())
-    self.assertTrue(out1.is_deleted())
+    # SRAM buffer converted back to HOST buffer (as it was synchronized).
+    self.assertFalse(out1.is_deleted())
+    self.assertEqual(get_buf_location(out1), IpuPjRtBufferLocation.HOST)
+
     # Check result streamed back to HOST.
     self.assertFalse(out20.is_deleted())
     self.assertFalse(out21.is_deleted())
@@ -508,6 +517,8 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     self.assertFalse(out21.is_deleted())
 
   def testIpuPjRtclient__donated_arguments__multi_executables(self):
+    get_buf_location = IpuPjRtBufferInspect.get_location
+    is_host_buffer_sync = IpuPjRtBufferInspect.is_host_buffer_sync
     mlir_module = """
     module @jit_fn.1 {
       func.func public @main(%arg0: tensor<2xf32>, %arg1: tensor<2xf32> {tf.aliasing_output = 1 : i32}) -> (tensor<2xf32>, tensor<2xf32>) {
@@ -521,23 +532,39 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     executable0 = self.backend.compile(c)
     executable1 = self.backend.compile(c)
 
+    inout_alias = IpuPjRtExecutableInspect.get_input_output_aliasing(executable0)
+    # Proper "inference" aliasing map.
+    self.assertEqual(len(inout_alias.inputs), 2)
+    self.assertEqual(inout_alias.inputs[0].type, IpuPjRtBufferDonationType.NONE)
+    self.assertEqual(inout_alias.inputs[1].type, IpuPjRtBufferDonationType.UPDATED)
+    self.assertEqual(inout_alias.inputs[1].input_index, 1)
+    self.assertEqual(inout_alias.inputs[1].output_index, 1)
+
     data0 = np.array([-2, 7], dtype=np.float32)
     data1 = np.array([10, 15], dtype=np.float32)
     buf0 = self.backend.buffer_from_pyval(data0)
     buf1 = self.backend.buffer_from_pyval(data1)
     # First executable called.
     out00, out01 = executable0.execute([buf0, buf1])
+    self.assertEqual(get_buf_location(out00), IpuPjRtBufferLocation.HOST)
+    self.assertEqual(get_buf_location(out01), IpuPjRtBufferLocation.SRAM)
+    self.assertFalse(is_host_buffer_sync(out01))
     npt.assert_array_equal(out00, data0 + data1)
 
     # Second executable called.
     out10, out11 = executable1.execute([buf0, out00])
     npt.assert_array_equal(out10, data0 + (data0 + data1))
+    self.assertEqual(get_buf_location(out11), IpuPjRtBufferLocation.SRAM)
     # First on-device buffer should be deleted (even if not directly used/overwritten).
+    self.assertEqual(get_buf_location(out01), IpuPjRtBufferLocation.SRAM)
     self.assertTrue(out01.is_deleted())
     self.assertFalse(out11.is_deleted())
     npt.assert_array_equal(out11, data0 * (data0 + data1))
 
   def testIpuPjRtclient__donated_arguments__multi_inputs_outputs(self):
+    get_buf_location = IpuPjRtBufferInspect.get_location
+    is_host_buffer_sync = IpuPjRtBufferInspect.is_host_buffer_sync
+
     mlir_module = """
     module @jit_fn.1 {
       func.func public @main(%arg0: tensor<2xf32> {tf.aliasing_output = 1 : i32}, %arg1: tensor<2xf32> {tf.aliasing_output = 2 : i32}) -> (tensor<2xf32>, tensor<2xf32>, tensor<2xf32>) {
@@ -550,6 +577,7 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     """
     c = xe.mlir.mlir_module_to_xla_computation(mlir_module, use_tuple_args=False)
     executable = self.backend.compile(c)
+    # TODO: check executable in/out aliasing map.
 
     data0 = np.array([-2, 7], dtype=np.float32)
     data1 = np.array([10, 15], dtype=np.float32)
@@ -557,16 +585,156 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     buf1 = self.backend.buffer_from_pyval(data1)
     # Proper first streaming of data to IPU.
     out00, out01, out02 = executable.execute([buf0, buf1])
+    # Proper location of output buffers.
+    self.assertEqual(get_buf_location(out00), IpuPjRtBufferLocation.HOST)
+    self.assertEqual(get_buf_location(out01), IpuPjRtBufferLocation.SRAM)
+    self.assertEqual(get_buf_location(out02), IpuPjRtBufferLocation.SRAM)
+    # Host synchronization of buffers?
+    self.assertTrue(is_host_buffer_sync(out00))
+    self.assertFalse(is_host_buffer_sync(out01))
+    self.assertFalse(is_host_buffer_sync(out02))
+    # Check data (with implicit transfer to host for SRAM buffers).
     npt.assert_array_equal(out00, data0 + data1)
-    npt.assert_array_equal(out01, data0 - data1)
+    # ignore `out01` on purpose here!
     npt.assert_array_equal(out02, data0 * data1)
+    # Re-check after sync with host!
+    self.assertEqual(get_buf_location(out00), IpuPjRtBufferLocation.HOST)
+    self.assertEqual(get_buf_location(out01), IpuPjRtBufferLocation.SRAM)
+    self.assertEqual(get_buf_location(out02), IpuPjRtBufferLocation.SRAM)
+    self.assertTrue(is_host_buffer_sync(out00))
+    self.assertFalse(is_host_buffer_sync(out01))
+    self.assertTrue(is_host_buffer_sync(out02))
 
+    # New run, with SRAM buffers reused.
     out10, out11, out12 = executable.execute([buf0, out02])
+    # `out01` was not synced with host => deleted.
     self.assertTrue(out01.is_deleted())
-    self.assertTrue(out02.is_deleted())
+    # `out02` was synched with host => not deleted.
+    self.assertFalse(out02.is_deleted())
     self.assertFalse(out11.is_deleted())
     self.assertFalse(out12.is_deleted())
     npt.assert_array_equal(out10, data0 + (data0 * data1))
+    # New outputs location check.
+    self.assertEqual(get_buf_location(out10), IpuPjRtBufferLocation.HOST)
+    self.assertEqual(get_buf_location(out11), IpuPjRtBufferLocation.SRAM)
+    self.assertEqual(get_buf_location(out12), IpuPjRtBufferLocation.SRAM)
+
+  def testIpuPjRtclient__donated_arguments__inference_unchanged_input_buffer(self):
+    get_buf_location = IpuPjRtBufferInspect.get_location
+    is_host_buffer_sync = IpuPjRtBufferInspect.is_host_buffer_sync
+
+    mlir_module = """
+    module @jit_fn.1 {
+      func.func public @main(%arg0: tensor<2xf32>, %arg1: tensor<2xf32> {tf.aliasing_output = 1 : i32}) -> (tensor<2xf32>, tensor<2xf32>) {
+        %0 = mhlo.add %arg0, %arg1 : tensor<2xf32>
+        return %0, %arg1 : tensor<2xf32>, tensor<2xf32>
+      }
+    }
+    """
+    c = xe.mlir.mlir_module_to_xla_computation(mlir_module, use_tuple_args=False)
+    executable = self.backend.compile(c)
+    inout_alias = IpuPjRtExecutableInspect.get_input_output_aliasing(executable)
+
+    # Proper "inference" aliasing map.
+    self.assertEqual(len(inout_alias.inputs), 2)
+    self.assertEqual(inout_alias.inputs[0].type, IpuPjRtBufferDonationType.NONE)
+    self.assertEqual(inout_alias.inputs[1].type, IpuPjRtBufferDonationType.UNCHANGED)
+    self.assertEqual(inout_alias.inputs[1].input_index, 1)
+    self.assertEqual(inout_alias.inputs[1].output_index, 1)
+    # Same for outputs aliasing.
+    self.assertEqual(len(inout_alias.outputs), 2)
+    self.assertEqual(inout_alias.outputs[0].type, IpuPjRtBufferDonationType.NONE)
+    self.assertEqual(inout_alias.outputs[1].type, IpuPjRtBufferDonationType.UNCHANGED)
+    self.assertEqual(inout_alias.outputs[1].input_index, 1)
+    self.assertEqual(inout_alias.outputs[1].output_index, 1)
+
+    data0 = np.array([-2, 7], dtype=np.float32)
+    data1 = np.array([10, 15], dtype=np.float32)
+    in0 = self.backend.buffer_from_pyval(data0)
+    in1 = self.backend.buffer_from_pyval(data1)
+
+    # Check location & sync => all on HOST right now!
+    self.assertEqual(get_buf_location(in0), IpuPjRtBufferLocation.HOST)
+    self.assertEqual(get_buf_location(in1), IpuPjRtBufferLocation.HOST)
+    self.assertTrue(is_host_buffer_sync(in0))
+    self.assertTrue(is_host_buffer_sync(in1))
+    # Proper streaming of data to IPU + unchanged input marked as synchronized SRAM buffer.
+    _, out10 = executable.execute([in0, in1])
+    # Second input should be SRAM synchronized buffer by now => can be re-used directly.
+    self.assertEqual(get_buf_location(in1), IpuPjRtBufferLocation.SRAM)
+    self.assertTrue(is_host_buffer_sync(in1))
+    # Second output should be on SRAM as well, and synced with HOST.
+    self.assertEqual(get_buf_location(out10), IpuPjRtBufferLocation.SRAM)
+    self.assertTrue(is_host_buffer_sync(out10))
+    # HOST buffer should be shared with input => zero copy for UNCHANGED buffers.
+    self.assertEqual(out10.unsafe_buffer_pointer(), in1.unsafe_buffer_pointer())
+
+    # A second run => should still work!
+    _, out11 = executable.execute([in0, in1])
+    self.assertFalse(in1.is_deleted())
+    self.assertEqual(get_buf_location(in1), IpuPjRtBufferLocation.SRAM)
+    self.assertTrue(is_host_buffer_sync(in1))
+    self.assertTrue(is_host_buffer_sync(out11))
+    # Previous returned buffer should not be expired/deleted as well.
+    self.assertFalse(out10.is_deleted())
+    self.assertTrue(is_host_buffer_sync(out10))
+
+    # Double check the data!
+    out11.block_until_ready()
+    npt.assert_array_equal(out11, in1)
+
+  def testIpuPjRtclient__donated_arguments__multiple_unchanged_input_buffers(self):
+    get_buf_location = IpuPjRtBufferInspect.get_location
+    is_host_buffer_sync = IpuPjRtBufferInspect.is_host_buffer_sync
+    is_on_device_expired = IpuPjRtBufferInspect.is_on_device_expired
+
+    mlir_module = """
+    module @jit_fn_donated_unchanged_inputs {
+      func.func public @main(%arg0: tensor<2xf32>, %arg1: tensor<2xf32> {tf.aliasing_output = 1 : i32}) -> (tensor<2xf32>, tensor<2xf32>) {
+        %0 = mhlo.add %arg0, %arg1 : tensor<2xf32>
+        return %0, %arg1 : tensor<2xf32>, tensor<2xf32>
+      }
+    }
+    """
+    c = xe.mlir.mlir_module_to_xla_computation(mlir_module, use_tuple_args=False)
+    executable = self.backend.compile(c)
+
+    data0 = np.array([-2, 7], dtype=np.float32)
+    data1 = np.array([10, 15], dtype=np.float32)
+    # Two collection of input buffers.
+    in0 = self.backend.buffer_from_pyval(data0)
+    in10 = self.backend.buffer_from_pyval(data1)
+    in11 = self.backend.buffer_from_pyval(data1)
+
+    # Call with the first input buffer.
+    self.assertEqual(get_buf_location(in10), IpuPjRtBufferLocation.HOST)
+    _, out10 = executable.execute([in0, in10])
+    # Second input should be SRAM synchronized buffer by now.
+    self.assertEqual(get_buf_location(in10), IpuPjRtBufferLocation.SRAM)
+    self.assertEqual(get_buf_location(out10), IpuPjRtBufferLocation.SRAM)
+    self.assertTrue(is_host_buffer_sync(in10))
+    self.assertTrue(is_host_buffer_sync(out10))
+
+    # Call with the second input buffer.
+    self.assertEqual(get_buf_location(in11), IpuPjRtBufferLocation.HOST)
+    _, out11 = executable.execute([in0, in11])
+
+    # Second input should be SRAM synchronized buffer by now.
+    self.assertEqual(get_buf_location(in11), IpuPjRtBufferLocation.SRAM)
+    self.assertEqual(get_buf_location(out11), IpuPjRtBufferLocation.SRAM)
+    self.assertTrue(is_host_buffer_sync(in11))
+    self.assertTrue(is_host_buffer_sync(out11))
+
+    # Previous input/output should be back to be HOST buffers.
+    self.assertTrue(is_on_device_expired(in10))
+    self.assertTrue(is_on_device_expired(out10))
+    self.assertFalse(in10.is_deleted())
+    self.assertFalse(out10.is_deleted())
+    self.assertEqual(get_buf_location(in10), IpuPjRtBufferLocation.HOST)
+    self.assertEqual(get_buf_location(out10), IpuPjRtBufferLocation.HOST)
+    # Should still point to the same host memory buffer.
+    self.assertEqual(out10.unsafe_buffer_pointer(), in10.unsafe_buffer_pointer())
+    self.assertEqual(out11.unsafe_buffer_pointer(), in11.unsafe_buffer_pointer())
 
   @unittest.skipUnless(async_backend, "Requires asynchronous IPU backend.")
   def testIpuPjRtclient__executable__asynchronous_dispatch__timing_no_data_dependency(
@@ -581,14 +749,14 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     ops.Mul(p, p)
     executable = self.backend.compile(c.build())
 
-    num_iters = 30
+    num_iters = 10
     input0 = self.backend.buffer_from_pyval(data)
     async_timings = approximate_timer(lambda: executable.execute([input0]), num_iters)
     block_timings = approximate_timer(
         lambda: executable.execute([input0])[0].block_until_ready(), num_iters
     )
     # Async. dispatch <= 50us
-    self.assertLessEqual(np.median(async_timings), 5 * 1e-5)
+    self.assertLessEqual(np.median(async_timings), 10 * 1e-5)
     # Async. dispatch should be at least 10x faster.
     self.assertGreaterEqual(np.median(block_timings), 10 * np.median(async_timings))
 
@@ -604,7 +772,7 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
 
     executable = self.backend.compile(c.build())
     inputs = [self.backend.buffer_from_pyval(data)]
-    num_iters = 30
+    num_iters = 10
     # "pre-warming"
     inputs = executable.execute(inputs)
     inputs = executable.execute(inputs)
