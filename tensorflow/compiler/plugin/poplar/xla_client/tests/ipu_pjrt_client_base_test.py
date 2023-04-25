@@ -683,6 +683,49 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     out11.block_until_ready()
     npt.assert_array_equal(out11, in1)
 
+  def testIpuPjRtclient__zzdonated_arguments__inference_delete_unchanged_output_buffer(
+      self
+  ):
+    get_buf_location = IpuPjRtBufferInspect.get_location
+    is_host_buffer_sync = IpuPjRtBufferInspect.is_host_buffer_sync
+
+    mlir_module = """
+    module @jit_fn.1 {
+      func.func public @main(%arg0: tensor<2xf32>, %arg1: tensor<2xf32> {tf.aliasing_output = 1 : i32}) -> (tensor<2xf32>, tensor<2xf32>) {
+        %0 = mhlo.add %arg0, %arg1 : tensor<2xf32>
+        return %0, %arg1 : tensor<2xf32>, tensor<2xf32>
+      }
+    }
+    """
+    c = xe.mlir.mlir_module_to_xla_computation(mlir_module, use_tuple_args=False)
+    executable = self.backend.compile(c)
+
+    data0 = np.array([-2, 7], dtype=np.float32)
+    data1 = np.array([10, 15], dtype=np.float32)
+    in0 = self.backend.buffer_from_pyval(data0)
+    in1 = self.backend.buffer_from_pyval(data1)
+
+    # Check location & sync => all on HOST right now!
+    self.assertEqual(get_buf_location(in0), IpuPjRtBufferLocation.HOST)
+    self.assertEqual(get_buf_location(in1), IpuPjRtBufferLocation.HOST)
+    self.assertTrue(is_host_buffer_sync(in0))
+    self.assertTrue(is_host_buffer_sync(in1))
+    # First call to "move" unchanged input buffer to SRAM.
+    out0, _ = executable.execute([in0, in1])
+    out0.block_until_ready()
+    gc.collect()
+
+    # Newer call. Should still be on SRAM and synced.
+    out0, _ = executable.execute([in0, in1])
+    self.assertEqual(get_buf_location(in1), IpuPjRtBufferLocation.SRAM)
+    self.assertTrue(is_host_buffer_sync(in1))
+
+    # Newer call with deleted output buffer. Should still be on SRAM and synced.
+    out0, out1 = executable.execute([in0, in1])
+    out1.delete()
+    self.assertEqual(get_buf_location(in1), IpuPjRtBufferLocation.SRAM)
+    self.assertTrue(is_host_buffer_sync(in1))
+
   def testIpuPjRtclient__donated_arguments__multiple_unchanged_input_buffers(self):
     get_buf_location = IpuPjRtBufferInspect.get_location
     is_host_buffer_sync = IpuPjRtBufferInspect.is_host_buffer_sync

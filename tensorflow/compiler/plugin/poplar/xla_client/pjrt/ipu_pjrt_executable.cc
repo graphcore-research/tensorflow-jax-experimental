@@ -245,10 +245,12 @@ Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable,
 
 StatusOr<IpuPjRtRunReplicaInputs>
 IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
-    const std::vector<xla::PjRtBuffer*>& inbuffers) {
+    const std::vector<xla::PjRtBuffer*>& inbuffers,
+    const IpuPjRtInputOutputAliasing& input_output_aliasing) {
   IpuPjRtRunReplicaInputs inputs;
   // Highly inspired by TFRT CPU client/executable handling of buffers.
   const auto num_inputs = inbuffers.size();
+  const auto& inputs_aliasing = input_output_aliasing.inputs();
   inputs.host_buffers_hold.reserve(num_inputs);
   inputs.host_tracked_buffers.reserve(num_inputs);
   inputs.host_deps.reserve(num_inputs);
@@ -274,8 +276,11 @@ IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
       }
       // TODO: handle buffer donation.
     }
-    // Mark on-device input buffer as expired (i.e. input buffer donation).
-    ipu_buffer->status()->MarkOnDeviceExpired();
+    // Mark on-device input buffer as expired for UPDATED buffers.
+    // Probably unnecessary, but safer to double do it on inputs!
+    if (inputs_aliasing[idx].type == IpuPjRtBufferDonationType::UPDATED) {
+      ipu_buffer->status()->MarkOnDeviceExpired();
+    }
     // Not supporting multiple buffers for now.
     CHECK_EQ(host_buffer_hold->Buffers().size(), 1);
     inputs.host_tracked_buffers.push_back(host_buffer_hold.buffer());
@@ -481,7 +486,7 @@ StatusOr<IpuPjRtRunState> IpuPjRtRunState::CreateWithIOBuffers(
     // Input buffers for the replica.
     TF_ASSIGN_OR_RETURN(auto inputs,
                         IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
-                            all_input_handles[replica]));
+                            all_input_handles[replica], input_output_aliasing));
     // Raw output buffers for the replica.
     TF_ASSIGN_OR_RETURN(auto outputs,
                         IpuPjRtRunReplicaOutputs::AllocateFromOutputInfos(
@@ -837,6 +842,7 @@ IpuPjRtExecutable::Execute(
   if (UseHostExecutable()) {
     return ExecuteOnHost(argument_handles, options, returned_futures);
   }
+  LOG(INFO) << "Creating input/output buffers for executable run :" << name();
 
   auto* host_context = m_client->cpu_client()->GetHostContext();
   // Poplar executable and associated in/out mapping.
@@ -869,12 +875,6 @@ IpuPjRtExecutable::Execute(
   TF_ASSIGN_OR_RETURN(
       const IpuPjRtBufferLocation inputs_donated_location,
       CheckInputDonatedBuffers(argument_handles, io_aliasing_map));
-
-  LOG(INFO) << "Queuing IPU computation " << name()
-            << "; num_replicas=" << num_replicas()
-            << " num_partitions=" << num_partitions()
-            << "; num_addressable_devices=" << num_addressable_devices
-            << "; num_inputs=" << num_inputs << " num_outputs=" << num_outputs;
 
   // execute_event indicates whether ipu computation is complete and whether
   // there was an error.
@@ -947,6 +947,14 @@ IpuPjRtExecutable::Execute(
   // ignored and weights are on SRAM for next iteration.
   this->MarkUnchangedDonatedBuffersAsSynchronizedOnSRAM(argument_handles);
 
+  LOG(INFO) << "Queuing IPU computation " << name()
+            << "; num_replicas=" << num_replicas()
+            << " num_partitions=" << num_partitions()
+            << "; num_addressable_devices=" << num_addressable_devices
+            << "; num_inputs=" << num_inputs << " num_outputs=" << num_outputs
+            << "; executable id: " << run_state.run_info.executable_id
+            << "; run id: " << run_state.run_info.run_id;
+
   /////////////// RUNNING POPLAR ENGINE ///////////////
   /////////////// RUNNING POPLAR ENGINE ///////////////
   /////////////// RUNNING POPLAR ENGINE ///////////////
@@ -1001,7 +1009,9 @@ void IpuPjRtExecutable::ExecuteDeviceRun(IpuPjRtRunState& run_state) {
   }
   // Transfer donated input buffers to IPU.
   if (run_state.inputs_donated_location == IpuPjRtBufferLocation::HOST) {
-    LOG(INFO) << "Transfer H2D buffers from HOST to IPU:" << name();
+    LOG(INFO) << "Transfer H2D buffers from HOST to IPU:" << name()
+              << "; executable id: " << run_state.run_info.executable_id
+              << "; run id: " << run_state.run_info.run_id;
     // Connect on-device buffers H2D streams.
     run_state.ConnectH2DStreamDonatedBuffers(
         io_aliasing_map.GetEntryInputInfos(), engine);

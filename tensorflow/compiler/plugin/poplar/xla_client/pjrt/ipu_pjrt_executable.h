@@ -135,7 +135,8 @@ struct IpuPjRtRunReplicaInputs {
    * @brief Build instance from a span of replica IPU PjRt input buffers.
    */
   static StatusOr<IpuPjRtRunReplicaInputs> CreateFromIpuPjRtBuffers(
-      const std::vector<xla::PjRtBuffer*>& inbuffers);
+      const std::vector<xla::PjRtBuffer*>& inbuffers,
+      const IpuPjRtInputOutputAliasing& input_output_aliasing);
 
   /** Connect input stream callbacks. TODO: const method. */
   void ConnectStreamCallbacks(

@@ -62,8 +62,8 @@ IpuPjRtBufferStatus::IpuPjRtBufferStatus(
 
 IpuPjRtBuffer::IpuPjRtBuffer() {}
 IpuPjRtBuffer::~IpuPjRtBuffer() {
-  // Always mark on device expired, in case other buffer tries access it.
-  status()->MarkOnDeviceExpired();
+  // NOTE: do not mutate buffer status as potentially shared with other buffers.
+  // e.g. UNCHANGED SRAM donated buffers.
 }
 
 const Shape& IpuPjRtBuffer::on_device_shape() const {
@@ -121,8 +121,7 @@ void IpuPjRtBuffer::Delete() {
   // Rely on HOST buffer logic to control deleting buffer.
   CHECK_NOTNULL(m_host_buffer);
   m_host_buffer->Delete();
-  // Make sure we mark on device expired too.
-  status()->MarkOnDeviceExpired();
+  // NOTE: status can be shared with other UNCHANGED buffers. DO NOT TOUCH!
 }
 
 StatusOr<std::unique_ptr<PjRtBuffer::ExternalReference>>
