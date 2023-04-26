@@ -15,7 +15,7 @@ on:
 
 jobs:
   lint_and_typecheck:
-    runs-on: [self-hosted, Linux, X64, 20.04, Ubuntu]
+    runs-on: [self-hosted, Linux, X64, 20.04, Ubuntu, intel]
     timeout-minutes: 10
     steps:
       - name: Cancel previous
@@ -32,7 +32,7 @@ jobs:
 
   # XLA/PJRT IPU client unit tests
   pjrt_ipu_client_unit_tests_ipu_model:
-    runs-on: [self-hosted, Linux, X64, 20.04, Ubuntu, pod16]
+    runs-on: [self-hosted, Linux, X64, 20.04, Ubuntu, amd, amdvcpu.small]
     container: graphcore/pytorch:3.1.0-ubuntu-20.04
     timeout-minutes: 120
     steps:
