@@ -1218,6 +1218,7 @@ IpuPjRtExecutable::ExecuteOnHost(
 
 Status IpuPjRtExecutable::CopyDeviceToHostBuffers(
     IpuPjRtRunOutputsRef* run_outputs_ref) {
+  CHECK_NOTNULL(run_outputs_ref);
   // TODO: wait until all outputs are done.
   if (run_outputs_ref->IsAnyOnDeviceExpired()) {
     return InvalidArgument(
@@ -1232,10 +1233,9 @@ Status IpuPjRtExecutable::CopyDeviceToHostBuffers(
   auto& all_outputs = run_outputs_ref->output_buffers;
   const std::size_t num_replicas = all_outputs.size();
   const auto& output_infos = io_aliasing_map.GetEntryOutputInfos();
-  for (std::size_t replica = 0; replica < num_replicas; ++replica) {
-    const auto& replica_outputs = all_outputs[replica];
-    for (std::size_t idx = 0; idx < replica_outputs.size(); ++idx) {
-      IpuPjRtBuffer* output = replica_outputs[idx].buffer;
+  for (const auto& replica_outputs : all_outputs) {
+    for (const auto& buffer_and_status : replica_outputs) {
+      IpuPjRtBuffer* output = buffer_and_status.buffer;
       // Wait until the buffer is ready (i.e. executable run done).
       // NOTE: blocking the main host thread (i.e. Python thread).
       TF_RETURN_IF_ERROR(output->BlockHostUntilReady());
@@ -1272,6 +1272,16 @@ Status IpuPjRtExecutable::CopyDeviceToHostBuffers(
             << name();
   // Host blocking call, transfering from SRAM to HOST.
   engine->run(PoplarProgramType::DEVICE_TO_HOST);
+
+  // Mark all SRAM buffers as host synchronized.
+  for (const auto& replica_outputs : all_outputs) {
+    for (const auto& buffer_and_status : replica_outputs) {
+      IpuPjRtBuffer* output = buffer_and_status.buffer;
+      if (output->location() == IpuPjRtBufferLocation::SRAM) {
+        output->MarkHostBufferSynchronized();
+      }
+    }
+  }
   return Status::OK();
 }
 

@@ -53,7 +53,7 @@ def approximate_timer(fn, N: int) -> np.ndarray:
   return np.array(timings)
 
 
-class IpuPjrtClientFactoryTest(parameterized.TestCase):
+class IpuPjrtClient0FactoryTest(parameterized.TestCase):
 
   def testIpuPjRtclient__parse_ipu_env_flags__xla_jax_ipu_flags(self):
     env = {
@@ -602,14 +602,14 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     self.assertEqual(get_buf_location(out01), IpuPjRtBufferLocation.SRAM)
     self.assertEqual(get_buf_location(out02), IpuPjRtBufferLocation.SRAM)
     self.assertTrue(is_host_buffer_sync(out00))
-    self.assertFalse(is_host_buffer_sync(out01))
+    # Getting `out02` on HOST also synchronizes `out01`.
+    self.assertTrue(is_host_buffer_sync(out01))
     self.assertTrue(is_host_buffer_sync(out02))
 
     # New run, with SRAM buffers reused.
     out10, out11, out12 = executable.execute([buf0, out02])
-    # `out01` was not synced with host => deleted.
-    self.assertTrue(out01.is_deleted())
-    # `out02` was synched with host => not deleted.
+    # `out01/out02` was synched with host => not deleted.
+    self.assertFalse(out01.is_deleted())
     self.assertFalse(out02.is_deleted())
     self.assertFalse(out11.is_deleted())
     self.assertFalse(out12.is_deleted())

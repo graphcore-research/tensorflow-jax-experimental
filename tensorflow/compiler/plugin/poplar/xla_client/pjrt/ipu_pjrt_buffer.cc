@@ -96,7 +96,6 @@ IpuPjRtBuffer::AcquireExternalReference() {
   // TODO: first check expire status, or executable ptr.
   TF_RETURN_IF_ERROR(m_run_outputs_ref->executable->CopyDeviceToHostBuffers(
       m_run_outputs_ref.get()));
-  MarkHostBufferSynchronized();
   // Now can acquire external reference on host buffer!
   return m_host_buffer->AcquireExternalReference();
 }
