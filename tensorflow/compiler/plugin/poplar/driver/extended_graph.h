@@ -176,6 +176,12 @@ class ExtendedGraph : public poplar::Graph {
     poplar::Graph::setInitialValue<T>(field, value);
   }
 
+  template <typename T>
+  void setInitialValue(
+      const ExtendedTensor& t, T val) {
+    poplar::Graph::setInitialValue<T>(t, val);
+  }
+
   void setInitialValueHalf(const poplar::Tensor& t,
                            poplar::ArrayRef<uint16_t> values);
 

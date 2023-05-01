@@ -508,8 +508,8 @@ void IpuPjRtRunState::ConnectStreamCallbacks(
     all_inputs[replica].ConnectStreamCallbacks(input_infos, replica, engine);
     all_outputs[replica].ConnectStreamCallbacks(output_infos, replica, engine);
   }
-  // Random seed as well!
-  engine->connectStream("__seed_stream", (void*)(&random_seed));
+  // Random seed initialize with constant on IPU, no streaming.
+  // See: PoplarXlaFlags::stream_random_seed
 }
 
 void IpuPjRtRunState::ConnectH2DStreamDonatedBuffers(

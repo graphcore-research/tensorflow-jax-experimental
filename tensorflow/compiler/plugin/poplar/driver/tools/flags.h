@@ -134,6 +134,13 @@ class PoplarXlaFlags {
   // compilation only.
   std::size_t hlo_hash;
 
+  // IPU PjRt client (JAX) flags.
+  // IPU PjRt client (JAX) flags.
+  // IPU PjRt client (JAX) flags.
+
+  // Stream random seed to IPU (or initialize with constant zero value).
+  bool stream_random_seed = true;
+
  private:
   static PoplarXlaFlags& GetMutable();
 

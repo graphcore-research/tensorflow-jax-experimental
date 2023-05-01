@@ -251,6 +251,8 @@ StatusOr<LocalClient*> GetIpuMeshXlaClient(
     // Always make sure we deactivate IPU model!
     poplar_flags.use_ipu_model = false;
   }
+  // Shared Poplar flags for IPU hw and model.
+  poplar_flags.stream_random_seed = false;
 
   LocalClientOptions options;
   options.set_platform(platform);

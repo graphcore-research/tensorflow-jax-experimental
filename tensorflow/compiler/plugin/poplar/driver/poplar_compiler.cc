@@ -543,6 +543,7 @@ StatusOr<DriverProgramSequence> InitializeSeed(
     DriverGraph& graph, int replication_factor, CompilerResources& resources,
     const poplar::DebugContext& debug_context = {"__seed"}) {
   PoplarOpDefDebugInfo debug_info(debug_context, "InitializeSeed");
+  const PoplarXlaFlags& flags = PoplarXlaFlags::Get();
 
   auto seed =
       graph.addVariable(poplar::UNSIGNED_INT, {2}, {debug_info, "seed"});
@@ -553,10 +554,17 @@ StatusOr<DriverProgramSequence> InitializeSeed(
   const auto use_synthetic_data =
       UseSyntheticDataFor(SyntheticDataCategory::Seed);
   if (!use_synthetic_data) {
-    // Copy the seed from the data stream and set it.
-    auto data_stream = graph.addHostToDeviceFIFO(
-        GetRandomNumberSeedStream(), seed.elementType(), seed.numElements());
-    seq.add(DriverProgramCopy(data_stream, seed, false, {debug_info}));
+    if(flags.stream_random_seed) {
+      // Copy the seed from the data stream and set it.
+      auto data_stream = graph.addHostToDeviceFIFO(
+          GetRandomNumberSeedStream(), seed.elementType(), seed.numElements());
+      seq.add(DriverProgramCopy(data_stream, seed, false, {debug_info}));
+    }
+    else {
+      // Set initial random seed to 0.
+      const uint32_t seed_value = 0;
+      graph.setInitialValue(seed, seed_value);
+    }
   } else if (use_synthetic_data && UseSyntheticDataInitializer()) {
     // Initialize the seed on the device.
     auto& initializer = DataInitializer::GetSyntheticDataInitializer();
