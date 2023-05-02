@@ -708,8 +708,11 @@ IpuPjRtInputOutputAliasing IpuPjRtInputOutputAliasing::CreateFromBaseExecutable(
   const auto unchanged_inouts = FindUnchangedInputsOutputs(hlo_module.get());
   CHECK_EQ(inputs_info.size(), unchanged_inouts.size());
   for (std::size_t idx = 0; idx < inputs_info.size(); ++idx) {
-    if (unchanged_inouts[idx] >= 0) {
-      auto& io_alias_info = inputs_aliasing[idx];
+    auto& io_alias_info = inputs_aliasing[idx];
+    // Ignore `UNCHANGED` inout not marked as donated in HLO.
+    if (unchanged_inouts[idx] >= 0 &&
+        io_alias_info.type != IpuPjRtBufferDonationType::NONE) {
+      // Updated IO alias type to `UNCHANGED`.
       io_alias_info.type = IpuPjRtBufferDonationType::UNCHANGED;
       // Got a problem if there is a mismatch here!
       CHECK_EQ(io_alias_info.output_index, unchanged_inouts[idx]);

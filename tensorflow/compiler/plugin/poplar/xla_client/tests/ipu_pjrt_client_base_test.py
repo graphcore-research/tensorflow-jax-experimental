@@ -683,7 +683,7 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     out11.block_until_ready()
     npt.assert_array_equal(out11, in1)
 
-  def testIpuPjRtclient__zzdonated_arguments__inference_delete_unchanged_output_buffer(
+  def testIpuPjRtclient__donated_arguments__inference_delete_unchanged_output_buffer(
       self
   ):
     get_buf_location = IpuPjRtBufferInspect.get_location
@@ -778,6 +778,36 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     # Should still point to the same host memory buffer.
     self.assertEqual(out10.unsafe_buffer_pointer(), in10.unsafe_buffer_pointer())
     self.assertEqual(out11.unsafe_buffer_pointer(), in11.unsafe_buffer_pointer())
+
+  def testIpuPjRtclient__donated_arguments__inference_unchanged_output_buffer_not_donated(
+      self
+  ):
+    get_buf_location = IpuPjRtBufferInspect.get_location
+    is_host_buffer_sync = IpuPjRtBufferInspect.is_host_buffer_sync
+
+    mlir_module = """
+    module @jit_fn.1 {
+      func.func public @main(%arg0: tensor<2xf32>, %arg1: tensor<2xf32>) -> (tensor<2xf32>, tensor<2xf32>) {
+        %0 = mhlo.add %arg0, %arg1 : tensor<2xf32>
+        return %0, %arg1 : tensor<2xf32>, tensor<2xf32>
+      }
+    }
+    """
+    c = xe.mlir.mlir_module_to_xla_computation(mlir_module, use_tuple_args=False)
+    executable = self.backend.compile(c)
+
+    data0 = np.array([-2, 7], dtype=np.float32)
+    data1 = np.array([10, 15], dtype=np.float32)
+    in0 = self.backend.buffer_from_pyval(data0)
+    in1 = self.backend.buffer_from_pyval(data1)
+
+    # Check location & sync => all on HOST right now!
+    self.assertEqual(get_buf_location(in0), IpuPjRtBufferLocation.HOST)
+    self.assertEqual(get_buf_location(in1), IpuPjRtBufferLocation.HOST)
+    # First call to "move" unchanged input buffer to SRAM.
+    out0, out1 = executable.execute([in0, in1])
+    npt.assert_array_equal(out0, data0 + data1)
+    npt.assert_array_equal(out1, in1)
 
   @unittest.skipUnless(async_backend, "Requires asynchronous IPU backend.")
   def testIpuPjRtclient__executable__asynchronous_dispatch__timing_no_data_dependency(
