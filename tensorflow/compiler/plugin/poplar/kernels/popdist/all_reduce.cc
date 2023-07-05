@@ -58,7 +58,7 @@ class PopDistAllReduceOp : public AsyncOpKernel {
               [&flattened_buffer, &ctx, &done, this] {
                 const auto num_elements = ctx->input(0).NumElements();
 
-                popdist::collectives::allReduceSum(
+                popdist::collectives::parallel::allReduceSum(
                     flattened_buffer, num_elements,
                     poplar::equivalent_device_type<T>().value,
                     this->tensor_name_);

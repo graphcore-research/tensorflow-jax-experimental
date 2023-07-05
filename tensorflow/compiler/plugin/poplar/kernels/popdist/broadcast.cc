@@ -53,10 +53,10 @@ class PopDistBroadcastOp : public AsyncOpKernel {
           ctx,
           xla::poplarplugin::RunPoplarFunction<popdist::popdist_error>(
               [&output, &ctx, &done, this] {
-                popdist::collectives::broadcast(
+                popdist::collectives::parallel::broadcast(
                     output->flat<T>().data(), output->NumElements(),
                     poplar::equivalent_device_type<T>().value,
-                    0 /** root_rank */, this->tensor_name_);
+                    this->tensor_name_);
 
                 done();
               }),
