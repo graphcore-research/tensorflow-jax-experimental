@@ -22,10 +22,13 @@ limitations under the License.
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_device_mesh.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
+#include "tensorflow/compiler/xla/python/callback.h"
 #include "tensorflow/compiler/xla/python/py_buffer.h"
 #include "tensorflow/compiler/xla/python/py_client.h"
 #include "tensorflow/compiler/xla/python/py_executable.h"
 #include "tensorflow/compiler/xla/python/types.h"
+
+#define VISIBLE_SYMBOL __attribute__((visibility("default")))
 
 namespace xla {
 namespace poplarplugin {
@@ -389,3 +392,40 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
 
 }  // namespace poplarplugin
 }  // namespace xla
+
+// Expose XLA Python CPU callback methods.
+// Using extern "C" + explicit visibility in compiled shared library.
+// pybind11 using -fvisibility=hidden. Need to explicit export symbols.
+extern "C" {
+
+/** Test foo function to make sure symbol visibility works. */
+VISIBLE_SYMBOL int IpuXlaFooFunction(int x) { return x * x; }
+
+/** @brief Expose Xla Python CPU callback. */
+VISIBLE_SYMBOL void IpuXlaPythonCpuCallback(uint64_t callback_ptr, void* output,
+                                            void** inputs,
+                                            XlaCustomCallStatus* status) {
+  // BUG: issue with int64 constant ptr passed as input. Ignored on IPU version.
+  // Using custom op metadata to pass directly the callback fn pointer.
+  xla::CpuCallback* callback = absl::bit_cast<xla::CpuCallback*>(callback_ptr);
+  callback->PrepareAndCall(output, inputs + 1, status);
+}
+
+/** Allocate a CustomCallStatus object. */
+VISIBLE_SYMBOL XlaCustomCallStatus* IpuXlaAllocateCustomCallStatus() {
+  auto status = new XlaCustomCallStatus();
+  return status;
+}
+/** Free a CustomCallStatus object. */
+VISIBLE_SYMBOL void IpuXlaFreeCustomCallStatus(XlaCustomCallStatus* status) {
+  delete status;
+}
+/** Get CustomCallStatus error msg, when existing. */
+VISIBLE_SYMBOL const char* IpuXlaGetErrorCustomCallStatus(
+    XlaCustomCallStatus* status) {
+  if (status->message) {
+    return status->message->c_str();
+  }
+  return nullptr;
+}
+}

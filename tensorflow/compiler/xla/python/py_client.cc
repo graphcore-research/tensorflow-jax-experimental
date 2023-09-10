@@ -591,7 +591,7 @@ PyClient::GetEmitPythonCallbackDescriptor(
     pybind11::function callable, absl::Span<Shape const> operand_shapes,
     absl::Span<Shape const> result_shapes) {
   PjRtPlatformId platform_id = pjrt_client_->platform_id();
-  if (platform_id != GpuId() && platform_id != CpuId()) {
+  if (platform_id != GpuId() && platform_id != CpuId() && platform_id != IpuId()) {
     return Unimplemented(
         "EmitPythonCallback is only implemented on CPU and GPU");
   }

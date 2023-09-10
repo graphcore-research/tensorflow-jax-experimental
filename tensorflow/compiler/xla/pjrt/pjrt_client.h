@@ -67,6 +67,10 @@ inline const char* TpuName() {
   static constexpr char kTpuName[] = "tpu";
   return kTpuName;
 }
+inline const char* IpuName() {
+  static constexpr char kIpuName[] = "ipu";
+  return kIpuName;
+}
 inline PjRtPlatformId CpuId() {
   static const PjRtPlatformId kCpuId = tensorflow::Fingerprint64(CpuName());
   return kCpuId;
@@ -78,6 +82,10 @@ inline PjRtPlatformId GpuId() {
 inline PjRtPlatformId TpuId() {
   static const PjRtPlatformId kTpuId = tensorflow::Fingerprint64(TpuName());
   return kTpuId;
+}
+inline PjRtPlatformId IpuId() {
+  static const PjRtPlatformId kIpuId = tensorflow::Fingerprint64(IpuName());
+  return kIpuId;
 }
 
 enum PjRtRuntimeType { kStreamExecutor, kTfrt };

@@ -14,6 +14,7 @@
 # ==============================================================================
 """IPU PRJT device API unit tests (using IPU model)."""
 import unittest
+import subprocess
 
 from absl.testing import absltest
 from absl.testing import parameterized
@@ -28,7 +29,7 @@ from tensorflow.compiler.plugin.poplar.xla_client.python.ipu_xla_client import (
     IpuDeviceMeshManager, IpuPjRtOptions, get_ipu_client, IpuTargetType, IpuPjRtDevice,
     IpuPjRtOptions, make_ipu_client, parse_ipu_env_flags, make_ipu_legacy_config,
     make_ipu_pjrt_options, IpuPjRtBufferLocation, IpuPjRtBufferStatus,
-    IpuPjRtBufferInspect, IpuPjRtExecutableInspect, IpuPjRtBufferDonationType
+    IpuPjRtBufferInspect, IpuPjRtExecutableInspect, IpuPjRtBufferDonationType, _ipu_xla
 )
 
 ops = xla_client.ops
@@ -179,7 +180,10 @@ class IpuPjrtClientBaseTest(parameterized.TestCase):
     self.assertEqual(ipu_client.process_index(), 0)
     self.assertEqual(ipu_client.host_id(), 0)
     self.assertEqual(ipu_client.platform, "ipu")
-    self.assertEqual(ipu_client.platform_version, "ipu_sdk3.1.0 (e12d5f9f01)")
+    self.assertIn(
+        ipu_client.platform_version,
+        {"ipu_sdk3.1.0 (e12d5f9f01)", "ipu_sdk3.2.0 (1513789a51)"}
+    )
     self.assertEqual(ipu_client.runtime_type, "stream_executor")
 
   def testIpuPjRtclient__get_ipu_client__ipu_model_local_devices(self):
@@ -868,6 +872,28 @@ class IpuPjrtClientExecutableModelTest(parameterized.TestCase):
     # Checking async. dispatch much faster than blocking (and <50us).
     self.assertLessEqual(async_timing / num_iters, 5 * 1e-5)
     self.assertLessEqual(async_timing * 10, block_timing)
+
+
+class IpuXlaClientLibraryTests(parameterized.TestCase):
+
+  def setUp(self):
+    super(IpuXlaClientLibraryTests, self).setUp()
+
+  def testIpuXlaClientLibraryTests__library_visible_symbols(self):
+    # Check we expose proper symbols in the IPU XLA client shared library.
+    commands = ['nm', '-D', _ipu_xla.__file__]
+    raw_output = subprocess.run(commands, stdout=subprocess.PIPE).stdout.decode('utf-8')
+    raw_output = raw_output.splitlines()
+    # Extract the visible symbols starting with "IpuXla"
+    visible_symbols = [v.split()[-1] for v in raw_output]
+    visible_symbols = {v for v in visible_symbols if v.startswith("IpuXla")}
+
+    # Should at leats contain these.
+    expected_symbols = {
+        "IpuXlaFreeCustomCallStatus", "IpuXlaPythonCpuCallback",
+        "IpuXlaAllocateCustomCallStatus", "IpuXlaGetErrorCustomCallStatus"
+    }
+    self.assertLessEqual(expected_symbols, visible_symbols)
 
 
 if __name__ == "__main__":
