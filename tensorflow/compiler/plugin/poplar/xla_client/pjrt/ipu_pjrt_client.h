@@ -265,6 +265,19 @@ class IpuPjRtClient : public PjRtClient {
       IpuPjRtBufferLocation inputs_donated_location,
       std::shared_ptr<IpuPjRtRunOutputsRef> run_outputs_ref,
       tfrt::AsyncValueRef<CpuEvent> execute_event);
+  /**
+   * @brief Estimate a run mesh transition from the current IPU client state.
+   * Useful for understanding whether an IPU device mesh will need to be reset,
+   * and know in advance which input buffers will be deleted/unsynchronized.
+   *
+   * This function is thread-safe.
+   *
+   * @param mesh_id Mesh id of the run.
+   * @param executable_id Executable id of the run.
+   * @return Mesh transition info.
+   */
+  IpuPjRtMeshTransition EstimateClientMeshTransition(int mesh_id,
+                                                     int executable_id) const;
 
   /**
    * @brief Should we run an IPU XLA computation directly on HOST? For

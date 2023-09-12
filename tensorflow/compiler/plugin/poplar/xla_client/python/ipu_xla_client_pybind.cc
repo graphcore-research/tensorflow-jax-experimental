@@ -286,6 +286,9 @@ PYBIND11_MODULE(ipu_xla_client_pybind, m) {
                   py::arg("mesh_manager"))
       .def("update", &IpuPjRtClientState::Update, py::arg("run_info"),
            py::arg("mesh_manager"))
+      .def("estimate_mesh_transition",
+           &IpuPjRtClientState::EstimateMeshTransition, py::arg("mesh_id"),
+           py::arg("executable_id"))
       .def("is_active_mesh", &IpuPjRtClientState::IsActiveMesh,
            py::arg("mesh_id"))
       .def_property_readonly("active_meshes",

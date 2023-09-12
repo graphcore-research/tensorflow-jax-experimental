@@ -135,6 +135,27 @@ std::pair<IpuPjRtClientState, IpuPjRtMeshTransition> IpuPjRtClientState::Update(
   return std::make_pair(std::move(state_updated), std::move(mesh_transition));
 }
 
+IpuPjRtMeshTransition IpuPjRtClientState::EstimateMeshTransition(
+    int mesh_id, int executable_id) const {
+  auto mesh_transition = IpuPjRtMeshTransition{mesh_id, false, false};
+  const auto is_mesh_active = this->IsActiveMesh(mesh_id);
+  if (is_mesh_active) {
+    for (const auto& m : m_active_meshes) {
+      if (m.mesh_id == mesh_id) {
+        // Is the executable already on this IPU mesh?
+        mesh_transition.require_device_attach = false;
+        mesh_transition.require_engine_load =
+            (m.executable_id != executable_id);
+      }
+    }
+  } else {
+    // Not active mesh => requires all!
+    mesh_transition.require_device_attach = true;
+    mesh_transition.require_engine_load = true;
+  }
+  return mesh_transition;
+}
+
 bool IpuPjRtClientState::IsActiveMesh(int mesh_id) const {
   return FindByMeshId(mesh_id) != nullptr;
 }
@@ -503,7 +524,8 @@ StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
     const auto poplar_compile_options =
         CreatePoplarCompileOptions(options, m_ipu_mesh_manager);
     // Compilation using stream executor IPU mesh client.
-    LOG(INFO) << "IPU PJRT client: compiling device Poplar executable.";
+    LOG(INFO) << "IPU PJRT client, compiling IPU device Poplar executable: "
+              << computation.name();
     TF_ASSIGN_OR_RETURN(
         std::unique_ptr<PjRtExecutable> pjrt_executable,
         m_se_mesh_client->Compile(computation, poplar_compile_options));
@@ -524,7 +546,8 @@ StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
   if (execute_on_host) {
     // No need to keep an IPU stream-executor executable, in case it exists.
     pjrt_se_executable.reset();
-    LOG(INFO) << "IPU PJRT client: compiling CPU/HOST executable.";
+    LOG(INFO) << "IPU PJRT client, compiling CPU/HOST executable: "
+              << computation.name();
     // TODO: convert compile options to fit CPU client.
     TF_ASSIGN_OR_RETURN(auto executable,
                         m_cpu_client->Compile(computation, options));
@@ -659,6 +682,13 @@ IpuPjRtClient::UpdateClientState(
   // Update current state + returns (run info, mesh transition).
   m_client_state = std::move(updated_client_state);
   return std::make_pair(std::move(run_info), std::move(mesh_transition));
+}
+
+IpuPjRtMeshTransition IpuPjRtClient::EstimateClientMeshTransition(
+    int mesh_id, int executable_id) const {
+  // Make sure the state is not mutated at the same time.
+  std::lock_guard<std::mutex> lk(m_client_state_mutex);
+  return m_client_state.EstimateMeshTransition(mesh_id, executable_id);
 }
 
 StatusOr<bool> IpuPjRtClient::IsIpuExecutableRunOnHost(

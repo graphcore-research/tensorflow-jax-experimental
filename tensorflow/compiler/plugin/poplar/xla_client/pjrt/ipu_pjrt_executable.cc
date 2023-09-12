@@ -62,9 +62,12 @@ Status CheckInputStreamingBuffers(
   return Status::OK();
 }
 
-StatusOr<IpuPjRtBufferLocation> CheckInputDonatedBuffers(
+StatusOr<IpuPjRtBufferLocation> CheckInputDonatedBuffersLocation(
     absl::Span<const std::vector<PjRtBuffer*>> argument_handles,
-    const InputOutputAliasingMap& io_aliasing_map) {
+    const InputOutputAliasingMap& io_aliasing_map,
+    const IpuPjRtMeshTransition& mesh_transition) {
+  // Check consistency of donated inputs, and compatibility with mesh
+  // transition.
   bool all_buffers_on_sram = true;
   bool all_buffer_host_sync = true;
   // TODO: check also device ids?
@@ -82,9 +85,17 @@ StatusOr<IpuPjRtBufferLocation> CheckInputDonatedBuffers(
       }
     }
   }
-  // All buffers already on SRAM => all good!
-  if (all_buffers_on_sram) {
+  const bool is_ipu_sram_reset = mesh_transition.IsIpuMeshSRAMReset();
+  // All buffers already on SRAM & no reset => all good!
+  if (all_buffers_on_sram && !is_ipu_sram_reset) {
     return IpuPjRtBufferLocation::SRAM;
+  }
+  // Buffers not host sync + IPU SRAM reset => problem!
+  if (is_ipu_sram_reset && !all_buffer_host_sync) {
+    return FailedPrecondition(
+        "The IPU device mesh with id %i will be reset (new engine load). Input "
+        "SRAM buffers will be invalid. Please use host buffers as inputs.",
+        mesh_transition.mesh_id);
   }
   // All buffers sync. with host => can transfer them.
   if (all_buffer_host_sync) {
@@ -901,7 +912,7 @@ IpuPjRtExecutable::Execute(
   if (UseHostExecutable()) {
     return ExecuteOnHost(argument_handles, options, returned_futures);
   }
-  LOG(INFO) << "Creating input/output buffers for executable run :" << name();
+  LOG(INFO) << "Creating input/output buffers for executable run: " << name();
 
   auto* host_context = m_client->cpu_client()->GetHostContext();
   // Poplar executable and associated in/out mapping.
@@ -925,15 +936,18 @@ IpuPjRtExecutable::Execute(
     CHECK_EQ(arguments_device.size(), num_inputs);
     TF_RETURN_IF_ERROR(ValidateArgumentHandles(arguments_device));
   }
+  // Estimate of the mesh transition given existing client state.
+  const auto mesh_transition =
+      m_client->EstimateClientMeshTransition(m_device_mesh_id, m_executable_id);
   // Check streaming input buffers.
   TF_RETURN_IF_ERROR(
       CheckInputStreamingBuffers(argument_handles, io_aliasing_map));
   // Check on device/donated input buffers, and get the location of these input
   // buffers. On HOST location requires the buffers to be first streamed before
   // calling the main program.
-  TF_ASSIGN_OR_RETURN(
-      const IpuPjRtBufferLocation inputs_donated_location,
-      CheckInputDonatedBuffers(argument_handles, io_aliasing_map));
+  TF_ASSIGN_OR_RETURN(const IpuPjRtBufferLocation inputs_donated_location,
+                      CheckInputDonatedBuffersLocation(
+                          argument_handles, io_aliasing_map, mesh_transition));
 
   // execute_event indicates whether ipu computation is complete and whether
   // there was an error.
@@ -991,12 +1005,12 @@ IpuPjRtExecutable::Execute(
   // Use as coordination mechanism when required to load or reorganize IPUs.
   // NOTE: passing inputs donated location, as used for marking previous SRAM
   // (UNCHANGED or UPDATED) buffers as expired (or not).
-  auto [run_info, mesh_transition] = m_client->UpdateClientState(
+  auto [update_run_info, update_mesh_transition] = m_client->UpdateClientState(
       m_device_mesh_id, m_executable_id, run_state.inputs_donated_location,
       m_last_run_outputs_ref, run_state.execute_event.CopyRef());
   // Move run info and mesh transition info.
-  run_state.run_info = std::move(run_info);
-  run_state.mesh_transition = std::move(mesh_transition);
+  run_state.run_info = std::move(update_run_info);
+  run_state.mesh_transition = std::move(update_mesh_transition);
 
   // No need for inputs scoped hold => convert to usage event.
   // NOTE: necessary, otherwise scoped hold blocking buffer delete.
@@ -1012,7 +1026,8 @@ IpuPjRtExecutable::Execute(
             << "; num_addressable_devices=" << num_addressable_devices
             << "; num_inputs=" << num_inputs << " num_outputs=" << num_outputs
             << "; executable id: " << run_state.run_info.executable_id
-            << "; run id: " << run_state.run_info.run_id;
+            << "; run id: " << run_state.run_info.run_id
+            << "; mesh_id: " << m_device_mesh_id;
 
   /////////////// RUNNING POPLAR ENGINE ///////////////
   /////////////// RUNNING POPLAR ENGINE ///////////////

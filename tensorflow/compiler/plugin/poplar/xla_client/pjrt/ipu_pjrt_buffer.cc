@@ -143,7 +143,8 @@ bool IpuPjRtBuffer::IsDeleted() {
     const bool is_deleted = is_host_deleted || is_on_device_expired;
     // TODO: take host synchronization into account?
     if (is_on_device_expired && !is_host_deleted) {
-      // Delete host buffer.
+      // Delete host buffer if not yet done.
+      // FIXME: potentially blocking call :/ Should we remove?
       m_host_buffer->Delete();
     }
     return is_deleted;

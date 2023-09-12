@@ -41,7 +41,7 @@ try:
           visible_devices=set(ipu_visible_devices), use_ipu_model=False
       )
   )
-except RuntimeError:
+except RuntimeError as e:
   ipu_backend = None
 
 
@@ -115,6 +115,13 @@ class IpuPjrtClientStateHwTest(parameterized.TestCase):
     self.assertFalse(mesh_transition.require_device_attach)
     self.assertTrue(mesh_transition.require_engine_load)
 
+    # Mesh transition => no need of device attach + engine load.
+    mesh_transition = state_updated.estimate_mesh_transition(
+        mesh_id=run_info.mesh_id, executable_id=run_info.executable_id
+    )
+    self.assertFalse(mesh_transition.require_device_attach)
+    self.assertFalse(mesh_transition.require_engine_load)
+
     # New run => no need to load the engine.
     state_updated, mesh_transition = state_updated.update(run_info, self.mesh_manager)
     self.assertFalse(mesh_transition.require_device_attach)
@@ -124,6 +131,12 @@ class IpuPjrtClientStateHwTest(parameterized.TestCase):
     state = IpuPjRtClientState.initialize(self.mesh_manager)
     mesh = self.mesh_manager.find(self.visible_devices[0:2])
     run_info = IpuPjRtExecutableRunInfo(mesh_id=mesh.id, executable_id=2, run_id=3)
+    # Mesh transition => device attach + engine load.
+    mesh_transition = state.estimate_mesh_transition(mesh_id=mesh.id, executable_id=2)
+    self.assertEqual(mesh_transition.mesh_id, mesh.id)
+    self.assertTrue(mesh_transition.require_device_attach)
+    self.assertTrue(mesh_transition.require_engine_load)
+
     state_updated, mesh_transition = state.update(run_info, self.mesh_manager)
     self.assertEqual(len(state_updated), len(state) - 1)
     # New updated mesh info: last one normally.

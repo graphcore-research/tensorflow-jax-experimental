@@ -61,6 +61,11 @@ struct IpuPjRtMeshTransition {
   bool require_engine_load = false;
   /** Collection of mesh blocking events. */
   std::vector<tfrt::RCReference<tfrt::AsyncValue>> mesh_blocking_events;
+
+  /** Is IPU SRAM reset (i.e. buffers not valid anymore). */
+  bool IsIpuMeshSRAMReset() const noexcept {
+    return require_device_attach || require_engine_load;
+  }
 };
 
 /**
@@ -111,6 +116,17 @@ class IpuPjRtClientState {
   std::pair<IpuPjRtClientState, IpuPjRtMeshTransition> Update(
       const IpuPjRtExecutableRunInfo& run_info,
       const IpuDeviceMeshManager& ipu_mesh_manager) const;
+
+  /**
+   * @brief Estimate the mesh transition of new run, given the current state.
+   *
+   * @param mesh_id Mesh id of the run.
+   * @param executable_id Executable id of the run.
+   * @return Mesh transition info.
+   */
+  IpuPjRtMeshTransition EstimateMeshTransition(int mesh_id,
+                                               int executable_id) const;
+
   /** Is a mesh active? */
   bool IsActiveMesh(int mesh_id) const;
 
