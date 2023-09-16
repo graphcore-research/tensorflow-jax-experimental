@@ -148,6 +148,9 @@ class PyClient : public std::enable_shared_from_this<PyClient> {
   MakeCrossHostReceiveBuffers(absl::Span<const Shape> shapes,
                               PjRtDevice* device);
 
+  StatusOr<pybind11::object> CreateUninitializedBuffer(
+    const Shape& shape, PjRtDevice* device);
+
   StatusOr<pybind11::object> BufferFromPyval(
       pybind11::handle argument, PjRtDevice* device, bool force_copy,
       PjRtClient::HostBufferSemantics host_buffer_semantics);

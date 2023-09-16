@@ -24,6 +24,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/pjrt/pjrt_client.h"
 #include "tensorflow/compiler/xla/pjrt/pjrt_stream_executor_client.h"
 #include "tensorflow/compiler/xla/pjrt/tfrt_cpu_pjrt_client.h"
+#include "tensorflow/compiler/xla/pjrt/transpose.h"
 
 namespace xla {
 namespace poplarplugin {
@@ -131,12 +132,16 @@ struct IpuPjRtRunReplicaInputs {
    */
   absl::InlinedVector<TfrtCpuBuffer::ScopedHold, 4> host_buffers_hold;
 
+  /** Optional input host transpose plans. */
+  std::vector<std::shared_ptr<TransposePlan>> host_transpose_plans;
+
   /**
    * @brief Build instance from a span of replica IPU PjRt input buffers.
    */
   static StatusOr<IpuPjRtRunReplicaInputs> CreateFromIpuPjRtBuffers(
       const std::vector<xla::PjRtBuffer*>& inbuffers,
-      const IpuPjRtInputOutputAliasing& input_output_aliasing);
+      const IpuPjRtInputOutputAliasing& input_output_aliasing,
+      xla::TransposePlanCache& transpose_cache);
 
   /** Connect input stream callbacks. TODO: const method. */
   void ConnectStreamCallbacks(
@@ -248,13 +253,15 @@ struct IpuPjRtRunState {
    * @param all_input_handles All replicas input buffers.
    * @param input_output_aliasing In/out aliasing info.
    * @param output_infos Output infos.
+   * @param transpose_cache Host transpose cache.
    * @return IPU run state with proper IO buffers.
    */
   static StatusOr<IpuPjRtRunState> CreateWithIOBuffers(
       tfrt::AsyncValueRef<CpuEvent> execute_event,
       absl::Span<const std::vector<PjRtBuffer*>> all_input_handles,
       const IpuPjRtInputOutputAliasing& input_output_aliasing,
-      const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos);
+      const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
+      xla::TransposePlanCache& transpose_cache);
 
   /**
    * @brief Connect Poplar stream callbacks to input and output buffers.
@@ -515,6 +522,9 @@ class IpuPjRtExecutable : public PjRtExecutable {
   ThreadSafeQueue<IpuPjRtRunState> m_execute_queue;
   /** Executable delete status. */
   std::atomic_bool m_executable_is_deleted{false};
+
+  /** Host transpose plan cache. */
+  xla::TransposePlanCache m_host_transpose_cache{16};
 
   /** Last run output buffers reference.
    * NOTE: this is useful in the case `IpuPjRtExecutable` instance gets deleted

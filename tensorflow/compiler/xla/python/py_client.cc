@@ -211,6 +211,20 @@ PyClient::GetDefaultDeviceAssignment1D(int num_replicas) {
   return result;
 }
 
+StatusOr<py::object> PyClient::CreateUninitializedBuffer(
+  const Shape& shape, PjRtDevice* device)
+{
+  if (device == nullptr) {
+    TF_RET_CHECK(!pjrt_client_->addressable_devices().empty());
+    device = pjrt_client_->addressable_devices().front();
+  }
+  CHECK(device != nullptr);
+  TF_ASSIGN_OR_RETURN(auto buffer, pjrt_client_->CreateUninitializedBuffer(shape, device));
+  auto traceback = Traceback::Get();
+  return PyBuffer::Make(shared_from_this(), std::move(buffer),
+                        std::move(traceback));
+}
+
 StatusOr<py::object> PyClient::BufferFromPyval(
     pybind11::handle argument, PjRtDevice* device, bool force_copy,
     PjRtClient::HostBufferSemantics host_buffer_semantics) {

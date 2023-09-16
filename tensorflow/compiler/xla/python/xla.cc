@@ -217,6 +217,8 @@ PYBIND11_MODULE(xla_extension, m) {
            &PyClient::CreateDeviceToHostChannelHandle)
       .def("create_host_to_device_channel_handle",
            &PyClient::CreateHostToDeviceChannelHandle)
+      .def("create_uninitialized_buffer", &PyClient::CreateUninitializedBuffer, py::arg("shape"),
+           py::arg("device") = nullptr)
       .def("buffer_from_pyval", &PyClient::BufferFromPyval, py::arg("argument"),
            py::arg("device") = nullptr, py::arg("force_copy") = false,
            py::arg("host_buffer_semantics") =

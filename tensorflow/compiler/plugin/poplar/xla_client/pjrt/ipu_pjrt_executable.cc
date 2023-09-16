@@ -23,6 +23,7 @@ limitations under the License.
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_client.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/utils.h"
 #include "tensorflow/compiler/xla/pjrt/tracked_tfrt_cpu_device_buffer.h"
+#include "tensorflow/compiler/xla/pjrt/utils.h"
 #include "tensorflow/compiler/xla/shape_util.h"
 
 namespace xla {
@@ -154,6 +155,39 @@ void ConnectStreamHostCallbacks(const HostFunctionInfos& host_function_infos,
   }
 }
 
+/**
+ * @brief Create the (optional) input host transpose plan.
+ * Necessary to support any input layout for host buffers.
+ */
+StatusOr<std::shared_ptr<TransposePlan>> CreateInputHostTransposePlan(
+    const xla::Shape& on_device_shape,
+    xla::TransposePlanCache& transpose_cache) {
+  // No layout => no transpose plan necessary.
+  const bool has_layout = on_device_shape.has_layout();
+  if (!has_layout) {
+    return std::shared_ptr<TransposePlan>{nullptr};
+  }
+  const auto type = on_device_shape.element_type();
+  const auto& dimensions = on_device_shape.dimensions();
+  std::vector<int64_t> byte_strides(dimensions.size());
+  // Extract bytes strides if XLA shape has layout.
+  xla::ShapeUtil::ByteStrides(on_device_shape,
+                              absl::Span<int64_t>(byte_strides));
+  // Is it default major to minor layout?
+  const bool has_default_layout =
+      !has_layout || xla::HasMajorToMinorLayout(type, dimensions, byte_strides);
+  if (has_default_layout) {
+    // Default major to minor layout => no transpose plan necessary.
+    return std::shared_ptr<TransposePlan>{nullptr};
+  }
+  // Not trivial layout => create (or get) host transpose plan.
+  absl::InlinedVector<int64_t, 4> permutation(dimensions.size());
+  absl::c_iota(permutation, 0);
+  return transpose_cache.GetOrCreate(primitive_util::ByteWidth(type),
+                                     dimensions, permutation,
+                                     TransposePlan::Striding{byte_strides});
+}
+
 }  // namespace
 
 /**
@@ -161,16 +195,24 @@ void ConnectStreamHostCallbacks(const HostFunctionInfos& host_function_infos,
  */
 class IpuInputStreamCallback : public poplar::StreamCallback {
  public:
-  IpuInputStreamCallback(std::shared_ptr<MaybeOwningCpuMemory> host_buffer)
-      : m_host_buffer{std::move(host_buffer)} {}
+  IpuInputStreamCallback(std::shared_ptr<MaybeOwningCpuMemory> host_buffer,
+                         std::shared_ptr<TransposePlan> host_tranpose_plan)
+      : m_host_buffer{std::move(host_buffer)},
+        m_host_transpose_plan{std::move(host_tranpose_plan)} {}
 
   poplar::StreamCallback::Result prefetch(void* dst) noexcept override {
     // Not yet supported.
     return poplar::StreamCallback::Result::NotAvailable;
   }
   void fetch(void* dst) noexcept override {
-    // Copy from input host TFRT buffer.
-    std::memcpy(dst, m_host_buffer->data(), m_host_buffer->size());
+    // Copy from input host TFRT buffer to IPU stream buffer.
+    if (m_host_transpose_plan) {
+      // Not default layout => use transpose plan.
+      m_host_transpose_plan->Execute(m_host_buffer->data(), dst);
+    } else {
+      // Major to minor => memcpy directly.
+      std::memcpy(dst, m_host_buffer->data(), m_host_buffer->size());
+    }
   }
   void complete() noexcept override {}
 
@@ -178,6 +220,10 @@ class IpuInputStreamCallback : public poplar::StreamCallback {
   /** Input host buffer to stream to device. */
   // TODO: support tuples?
   std::shared_ptr<MaybeOwningCpuMemory> m_host_buffer;
+  /** (Optional) host transpose plan for copying the input.
+   * Used if memory layout is not standard major to minor layout.
+   */
+  std::shared_ptr<TransposePlan> m_host_transpose_plan{nullptr};
 };
 
 /**
@@ -305,7 +351,8 @@ Status CheckPoplarExecutableValid(PoplarExecutable* poplar_executable,
 StatusOr<IpuPjRtRunReplicaInputs>
 IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
     const std::vector<xla::PjRtBuffer*>& inbuffers,
-    const IpuPjRtInputOutputAliasing& input_output_aliasing) {
+    const IpuPjRtInputOutputAliasing& input_output_aliasing,
+    xla::TransposePlanCache& transpose_cache) {
   IpuPjRtRunReplicaInputs inputs;
   // Highly inspired by TFRT CPU client/executable handling of buffers.
   const auto num_inputs = inbuffers.size();
@@ -314,6 +361,7 @@ IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
   inputs.host_tracked_buffers.reserve(num_inputs);
   inputs.host_deps.reserve(num_inputs);
   inputs.buffers_status.reserve(num_inputs);
+  inputs.host_transpose_plans.reserve(num_inputs);
   // Extract host input buffers (and input events).
   for (std::size_t idx = 0; idx < num_inputs; ++idx) {
     auto* ipu_buffer = tensorflow::down_cast<IpuPjRtBuffer*>(inbuffers[idx]);
@@ -340,11 +388,16 @@ IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
     if (inputs_aliasing[idx].type == IpuPjRtBufferDonationType::UPDATED) {
       ipu_buffer->status()->MarkOnDeviceExpired();
     }
+    // Optional transpose plan on the input.
+    TF_ASSIGN_OR_RETURN(auto input_transpose_plan,
+                        CreateInputHostTransposePlan(
+                            ipu_buffer->on_device_shape(), transpose_cache));
     // Not supporting multiple buffers for now.
     CHECK_EQ(host_buffer_hold->Buffers().size(), 1);
     inputs.host_tracked_buffers.push_back(host_buffer_hold.buffer());
     inputs.host_buffers_hold.emplace_back(std::move(host_buffer_hold));
     inputs.buffers_status.push_back(ipu_buffer->status());
+    inputs.host_transpose_plans.push_back(std::move(input_transpose_plan));
   }
   return inputs;
 }
@@ -362,7 +415,7 @@ void IpuPjRtRunReplicaInputs::ConnectStreamCallbacks(
       engine->connectStreamToCallback(
           inname, replica,
           std::make_unique<IpuInputStreamCallback>(
-              host_tracked_buffers[i]->Buffers()[0]));
+              host_tracked_buffers[i]->Buffers()[0], host_transpose_plans[i]));
     }
   }
 }
@@ -377,8 +430,9 @@ void IpuPjRtRunReplicaInputs::ConnectH2DStreamDonatedBuffers(
     if (ininfo.IsResource()) {
       // Connect host buffer to stream to SRAM.
       const auto& inbuffer = host_tracked_buffers[i]->Buffers()[0];
-      engine->connectStreamToCallback(
-          inname, replica, std::make_unique<IpuInputStreamCallback>(inbuffer));
+      engine->connectStreamToCallback(inname, replica,
+                                      std::make_unique<IpuInputStreamCallback>(
+                                          inbuffer, host_transpose_plans[i]));
     }
   }
 }
@@ -542,7 +596,8 @@ StatusOr<IpuPjRtRunState> IpuPjRtRunState::CreateWithIOBuffers(
     tfrt::AsyncValueRef<CpuEvent> execute_event,
     absl::Span<const std::vector<PjRtBuffer*>> all_input_handles,
     const IpuPjRtInputOutputAliasing& input_output_aliasing,
-    const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos) {
+    const std::vector<InputOutputAliasingMap::OutputInfo>& output_infos,
+    xla::TransposePlanCache& transpose_cache) {
   const auto num_replicas = all_input_handles.size();
   IpuPjRtRunState run_state;
   // Copy the execute event into the state.
@@ -553,7 +608,8 @@ StatusOr<IpuPjRtRunState> IpuPjRtRunState::CreateWithIOBuffers(
     // Input buffers for the replica.
     TF_ASSIGN_OR_RETURN(auto inputs,
                         IpuPjRtRunReplicaInputs::CreateFromIpuPjRtBuffers(
-                            all_input_handles[replica], input_output_aliasing));
+                            all_input_handles[replica], input_output_aliasing,
+                            transpose_cache));
     // Raw output buffers for the replica.
     TF_ASSIGN_OR_RETURN(auto outputs,
                         IpuPjRtRunReplicaOutputs::AllocateFromOutputInfos(
@@ -962,7 +1018,7 @@ IpuPjRtExecutable::Execute(
       auto run_state,
       IpuPjRtRunState::CreateWithIOBuffers(
           execute_event, argument_handles, m_input_output_aliasing,
-          io_aliasing_map.GetEntryOutputInfos()));
+          io_aliasing_map.GetEntryOutputInfos(), m_host_transpose_cache));
   run_state.inputs_donated_location = inputs_donated_location;
 
   // Wrapping execute even as PjRt future status.
@@ -1218,14 +1274,16 @@ Status IpuPjRtExecutable::ValidateArgumentHandles(
     if (!computation_layout.parameter_layout(i).MatchesLayoutInShape(
             shape, /*minor_to_major_only=*/false,
             /*ignore_fully_empty_tiling=*/true)) {
-      return InvalidArgument(
-          "Argument does not match host shape or layout of computation "
+      LOG(WARNING) << absl::StrFormat(
+          "Function '%s'. Argument does not match host shape or layout of "
+          "computation "
           "parameter "
-          "%d: want %s, got %s",
-          i,
+          "%d: want %s, got %s. This may impact performance.",
+          poplar_executable->module().name(), i,
           ShapeUtil::HumanStringWithLayout(
               computation_layout.parameter_layout(i).shape()),
           ShapeUtil::HumanStringWithLayout(shape));
+      // TODO: check outputs layout?
     }
   }
   return Status::OK();

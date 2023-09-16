@@ -591,7 +591,16 @@ StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::DeserializeExecutable(
 // Creates a buffer on the device without initializing or copying any data.
 StatusOr<std::unique_ptr<PjRtBuffer>> IpuPjRtClient::CreateUninitializedBuffer(
     const Shape& shape, PjRtDevice* device) {
-  return Unimplemented("Not implemented `CreateUninitializedBuffer` on IPU.");
+  // Create IPU unitialized buffer on the HOST. Will be transfered on IPU when
+  // required. Assigning default HOST device to the cpu buffer.
+  PjRtDevice* host_device = m_cpu_client->addressable_devices()[0];
+  TF_ASSIGN_OR_RETURN(
+      std::unique_ptr<PjRtBuffer> cpu_buffer,
+      m_cpu_client->CreateUninitializedBuffer(shape, host_device));
+  // No IPU executable associated with buffer.
+  return IpuPjRtBuffer::CreateIpuBuffer(
+      unique_down_cast<TfrtCpuBuffer>(std::move(cpu_buffer)),
+      IpuPjRtBufferLocation::HOST, device, nullptr);
 }
 StatusOr<std::unique_ptr<PjRtClient::AsyncBufferTransferManager>>
 IpuPjRtClient::CreateBuffersForAsyncTransfer(absl::Span<const Shape> shapes,
