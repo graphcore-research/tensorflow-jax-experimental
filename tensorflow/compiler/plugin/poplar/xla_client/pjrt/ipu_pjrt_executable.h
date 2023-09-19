@@ -256,7 +256,7 @@ struct IpuPjRtRunState {
    * @param transpose_cache Host transpose cache.
    * @return IPU run state with proper IO buffers.
    */
-  static StatusOr<IpuPjRtRunState> CreateWithIOBuffers(
+  static StatusOr<std::unique_ptr<IpuPjRtRunState>> CreateWithIOBuffers(
       tfrt::AsyncValueRef<CpuEvent> execute_event,
       absl::Span<const std::vector<PjRtBuffer*>> all_input_handles,
       const IpuPjRtInputOutputAliasing& input_output_aliasing,
@@ -485,10 +485,14 @@ class IpuPjRtExecutable : public PjRtExecutable {
       const ExecuteOptions& options,
       std::optional<std::vector<PjRtFuture<Status>>>& returned_futures);
 
-  /** Execute loop fucntion, used in the asynchronous case.
+  /** Execute loop function, used in the asynchronous case.
    * This method is run in a separate execute thread.
    */
   void ExecuteAsyncLoop();
+  /** Cleanup asynchronous loop => avoid blocking main execution
+   * thread for just destroying objects!
+   */
+  void ExecuteCleanupAsyncLoop();
 
   /** Asynchronous execution on IPU? */
   bool m_asynchronous_run = false;
@@ -518,8 +522,14 @@ class IpuPjRtExecutable : public PjRtExecutable {
 
   /** Asynchronous execute thread. */
   std::thread m_execute_thread;
-  /** Asynchronous execute queue. */
-  ThreadSafeQueue<IpuPjRtRunState> m_execute_queue;
+  /** Asynchronous cleanup thread. */
+  std::thread m_cleanup_thread;
+
+  /** Asynchronous execute run state queue. */
+  ThreadSafeQueue<std::unique_ptr<IpuPjRtRunState>> m_execute_run_state_queue;
+  /** Asynchronous execute run state cleanup queue. */
+  ThreadSafeQueue<std::unique_ptr<IpuPjRtRunState>> m_clean_run_state_queue;
+
   /** Executable delete status. */
   std::atomic_bool m_executable_is_deleted{false};
 
