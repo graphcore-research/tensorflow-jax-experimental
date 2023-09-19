@@ -20,6 +20,7 @@ limitations under the License.
 #include "tensorflow/compiler/plugin/poplar/driver/poplar_executor.h"
 #include "tensorflow/compiler/plugin/poplar/driver/poplar_platform.h"
 #include "tensorflow/compiler/plugin/poplar/driver/tools/flags.h"
+#include "tensorflow/compiler/plugin/poplar/driver/tools/tracepoint.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/ipu_backend/ipu_executor.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_buffer.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_device.h"
@@ -408,6 +409,7 @@ IpuPjRtClient::IpuPjRtClient(bool asynchronous, int process_id,
             << "; asynchronous=" << m_asynchronous;
 }
 IpuPjRtClient::~IpuPjRtClient() {
+  TENSORFLOW_TRACEPOINT();
   // Delete CPU and IPU stream executor clients.
   m_cpu_client.reset();
   m_se_mesh_client.reset();
@@ -499,6 +501,8 @@ StatusOr<std::unique_ptr<HloCostAnalysis>> IpuPjRtClient::GetHloCostAnalysis() {
 
 StatusOr<std::unique_ptr<PjRtExecutable>> IpuPjRtClient::Compile(
     const XlaComputation& computation, CompileOptions options) {
+  TENSORFLOW_TRACEPOINT();
+
   // Device assignment required => use a default one if none.
   if (!options.executable_build_options.has_device_assignment()) {
     const int num_replicas = options.executable_build_options.num_replicas();

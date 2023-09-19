@@ -19,6 +19,7 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "absl/container/inlined_vector.h"
 #include "tensorflow/compiler/plugin/poplar/driver/poplar_executable.h"
+#include "tensorflow/compiler/plugin/poplar/driver/tools/tracepoint.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_buffer.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/ipu_pjrt_client.h"
 #include "tensorflow/compiler/plugin/poplar/xla_client/pjrt/utils.h"
@@ -909,7 +910,10 @@ IpuPjRtExecutable::IpuPjRtExecutable(
     m_execute_thread = std::thread(&IpuPjRtExecutable::ExecuteAsyncLoop, this);
   }
 }
-IpuPjRtExecutable::~IpuPjRtExecutable() { this->Delete(); }
+IpuPjRtExecutable::~IpuPjRtExecutable() {
+  TENSORFLOW_TRACEPOINT();
+  this->Delete();
+}
 
 PjRtClient* IpuPjRtExecutable::client() const { return m_client; }
 // Unique name for this executable, e.g., HloModule name.
@@ -964,6 +968,8 @@ IpuPjRtExecutable::Execute(
     absl::Span<const std::vector<PjRtBuffer*>> argument_handles,
     const ExecuteOptions& options,
     std::optional<std::vector<PjRtFuture<Status>>>& returned_futures) {
+  TENSORFLOW_TRACEPOINT();
+
   // Forward call directly to host executable.
   if (UseHostExecutable()) {
     return ExecuteOnHost(argument_handles, options, returned_futures);
@@ -1099,6 +1105,7 @@ IpuPjRtExecutable::Execute(
 }
 
 void IpuPjRtExecutable::ExecuteDeviceRun(IpuPjRtRunState& run_state) {
+  TENSORFLOW_TRACEPOINT();
   // Single use of Poplar::Engine at a time!
   std::scoped_lock l(m_poplar_engine_mutex);
   // Poplar executable and associated in/out mapping.
@@ -1311,6 +1318,7 @@ IpuPjRtExecutable::ExecuteOnHost(
     absl::Span<const std::vector<PjRtBuffer*>> argument_handles,
     const ExecuteOptions& options,
     std::optional<std::vector<PjRtFuture<Status>>>& returned_futures) {
+  TENSORFLOW_TRACEPOINT();
   // Only support single device for now.
   CHECK_EQ(argument_handles.size(), 1);
   CHECK(m_host_executable);
@@ -1353,6 +1361,7 @@ IpuPjRtExecutable::ExecuteOnHost(
 
 Status IpuPjRtExecutable::CopyDeviceToHostBuffers(
     IpuPjRtRunOutputsRef* run_outputs_ref) {
+  TENSORFLOW_TRACEPOINT();
   CHECK_NOTNULL(run_outputs_ref);
   // TODO: wait until all outputs are done.
   if (run_outputs_ref->IsAnyOnDeviceExpired()) {

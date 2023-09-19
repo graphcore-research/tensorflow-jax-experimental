@@ -19,6 +19,7 @@ limitations under the License.
 #include <poplar/DeviceManager.hpp>
 
 #include "absl/strings/str_format.h"
+#include "tensorflow/compiler/plugin/poplar/driver/tools/tracepoint.h"
 #include "tensorflow/core/platform/default/logging.h"
 
 namespace xla {
@@ -370,6 +371,8 @@ bool IpuDeviceMeshManager::Attach(IdType mesh_id,
   if (this->find(mesh_id).IsAttached()) {
     return true;
   }
+  // Tracepoint only when not-already attached.
+  TENSORFLOW_TRACEPOINT();
   // Detach all overlapping IPU meshes.
   if (force_detach_overlapping) {
     const auto& overlapping_mesh_ids = this->OverlappingMeshIds(mesh_id);
@@ -387,6 +390,7 @@ bool IpuDeviceMeshManager::IsAttached(IdType mesh_id) const {
 }
 bool IpuDeviceMeshManager::AttachAll() const {
   std::scoped_lock l(m_device_mutex);
+  TENSORFLOW_TRACEPOINT();
   const std::size_t num_ipus = this->count(1);
   // Check if single IPUs are already attached?
   bool already_attached = true;
@@ -411,6 +415,7 @@ bool IpuDeviceMeshManager::AttachAll() const {
 
 void IpuDeviceMeshManager::Detach(IdType mesh_id) const {
   std::scoped_lock l(m_device_mutex);
+  TENSORFLOW_TRACEPOINT();
   const auto& mesh = this->find(mesh_id);
   // NOTE: bug in Poplar if calling detach on std::move device.
   if (mesh.device().isAttached()) {
@@ -419,6 +424,7 @@ void IpuDeviceMeshManager::Detach(IdType mesh_id) const {
 }
 void IpuDeviceMeshManager::DetachAll() const {
   std::scoped_lock l(m_device_mutex);
+  TENSORFLOW_TRACEPOINT();
   for (const auto& m : m_meshes) {
     // NOTE: bug in Poplar if calling detach on std::move device.
     if (m.device().isAttached()) {
